@@ -5,6 +5,7 @@ from platform import platform
 import requests
 
 from .compat import json
+from .decorators import resource
 from .exceptions import (
     IllegalHttpMethod,
 )
@@ -20,15 +21,21 @@ class Gooee(object):
 
     allowed_methods = ['post', 'get', 'delete']
 
-    def __init__(self, oauth_token, api_base_url=GOOEE_API_URL):
-        self.oauth_token = oauth_token
+    def __init__(self, api_base_url=GOOEE_API_URL):
         self.api_base_url = api_base_url
+        self.auth_token = ''
+
+    def authenticate(self, username, password):
+        payload = {"username": username,
+                   "password": password}
+        token = self.post('/auth/login', payload).get('token')
+        self.auth_token = 'JWT {token}'.format(token=token)
 
     @property
     def headers(self):
         headers = {
             "content-type": "application/json",
-            "Authorization": "",
+            "Authorization": self.auth_token,
             "User-Agent": "gooee-python-sdk {version} ({system})".format(
                 version=__version__,
                 system=platform(),
@@ -44,6 +51,7 @@ class Gooee(object):
         method = getattr(self, method)
         return method(path, data)
 
+    @resource
     def get(self, path, data=None):
         path = format_path(path, self.api_base_url)
 
@@ -52,16 +60,19 @@ class Gooee(object):
 
         return requests.get(path, headers=self.headers, params=data or {})
 
+    @resource
     def post(self, path, data=None):
         path = format_path(path, self.api_base_url)
         json_data = json.dumps(data or {})
         return requests.post(path, headers=self.headers, data=json_data)
 
+    @resource
     def put(self, path, data=None):
         path = format_path(path, self.api_base_url)
         json_data = json.dumps(data or {})
         return requests.put(path, headers=self.headers, data=json_data)
 
+    @resource
     def delete(self, path, data=None):
         path = format_path(path, self.api_base_url)
         return requests.delete(path, headers=self.headers, data=data or {})
