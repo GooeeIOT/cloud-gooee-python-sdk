@@ -45,7 +45,6 @@ class Gooee(object):
         return method(path, data)
 
     def get(self, path, data=None):
-        # Get the function path
         path = format_path(path, self.api_base_url)
 
         if data is None:
@@ -57,6 +56,11 @@ class Gooee(object):
         path = format_path(path, self.api_base_url)
         json_data = json.dumps(data or {})
         return requests.post(path, headers=self.headers, data=json_data)
+
+    def put(self, path, data=None):
+        path = format_path(path, self.api_base_url)
+        json_data = json.dumps(data or {})
+        return requests.put(path, headers=self.headers, data=json_data)
 
     def delete(self, path, data=None):
         path = format_path(path, self.api_base_url)
