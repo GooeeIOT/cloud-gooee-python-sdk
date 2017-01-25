@@ -34,11 +34,11 @@ if sys.version_info[:2] < (2, 7):
     requirements.append('simplejson')
 
 setup(
-    name='eventbrite',
+    name='gooee',
     version=__version__,
     description='Official Gooee SDK for Python',
     long_description=readme + '\n\n' + history,
-    author='Dairon Medina C.',
+    author='Gooee LLC',
     author_email='dairon@gooee.com',
     url='https://github.com/GooeeIOT/gooee-python-sdk',
     packages=[
