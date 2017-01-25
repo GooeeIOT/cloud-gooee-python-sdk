@@ -2,7 +2,7 @@
 import pprint
 
 
-class GooeeObject(dict):
+class Resource(dict):
 
     is_list = None
     is_paginated = None
