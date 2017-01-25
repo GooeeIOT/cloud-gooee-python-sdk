@@ -46,8 +46,16 @@ _________________
 Usage
 ~~~~~
 
-TODO
+To use the SDK in your project:
 
+.. code-block:: python
+
+    from gooee import Gooee
+
+    client = Gooee()
+    client.authenticate('username@example.com', 'YourPasswordHere')
+
+That is all!
 
 .. _Gooee: https://www.gooee.com
 
