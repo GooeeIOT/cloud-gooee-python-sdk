@@ -15,6 +15,7 @@ from requests.exceptions import ConnectionError
 
 
 class GooeeException(Exception):
+    """Base class for all the Gooee errors."""
     pass
 
 
