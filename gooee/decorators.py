@@ -29,8 +29,11 @@ def resource(func):
     def wrapper(*args, **kwargs):
         try:
             payload = func(*args, **kwargs)
+            resource = Resource.create(payload)
         except requests.exceptions.ConnectionError as e:
             raise InternetConnectionError(e)
-        return Resource.create(payload)
+        except:
+            return payload
+        return resource
 
     return wrapper
