@@ -26,7 +26,7 @@ class Resource(dict):
 
     @classmethod
     def create(cls, response):
-        data = response.json()
+        data = response.json() or {}
         gooeeobj = cls(data)
         try:
             # Strip out URL parameters for resource_uri
