@@ -27,6 +27,8 @@ def resource(func):
 
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
+        payload = None
+        resource = None
         try:
             payload = func(*args, **kwargs)
             resource = Resource.create(payload)
