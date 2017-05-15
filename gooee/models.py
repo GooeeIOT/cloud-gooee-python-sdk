@@ -14,7 +14,7 @@
 import pprint
 
 
-class Resource(dict):
+class Resource(object):
 
     is_list = None
     is_paginated = None

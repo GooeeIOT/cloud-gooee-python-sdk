@@ -50,10 +50,11 @@ To use the SDK in your project:
 
 .. code-block:: python
 
-    from gooee import Gooee
+    from gooee import GooeeClient
 
-    client = Gooee()
+    client = GooeeClient()
     client.authenticate('username@example.com', 'YourPasswordHere')
+    response = client.get('/buildings')
 
 That is all!
 

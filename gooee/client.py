@@ -12,15 +12,16 @@
 # ANY KIND, either express or implied. See the License for the specific
 # language governing permissions and limitations under the License.
 from __future__ import unicode_literals
+
+from copy import deepcopy
 from platform import platform
 
 import requests
+from six.moves import urllib_parse, urllib_request
 
 from .compat import json
 from .decorators import resource
-from .exceptions import (
-    IllegalHttpMethod,
-)
+from .exceptions import IllegalHttpMethod
 from . import __version__
 from .utils import (
     format_path,
@@ -28,63 +29,87 @@ from .utils import (
 )
 
 
-class Gooee(object):
+class GooeeClient(object):
     """Gooee HTTP client class."""
 
-    allowed_methods = ['post', 'get', 'delete']
+    allowed_methods = ('get', 'post', 'put', 'patch', 'delete', 'options')
 
     def __init__(self, api_base_url=GOOEE_API_URL):
         self.api_base_url = api_base_url
         self.auth_token = ''
 
+    def _request(self, verb, path, headers=None, data=None, params=None):
+        """Request helper."""
+        if verb not in self.allowed_methods:
+            msg = 'HTTP method {} not supported. Needs to be one of: {}'.format(verb, self.allowed_methods)
+            raise IllegalHttpMethod(msg)
+
+        url = format_path(path, self.api_base_url)
+
+        headers_final = self.default_headers
+        headers_final.update(headers or {})
+        if not headers_final['Authorization']:
+            headers_final.pop('Authorization')
+
+        print('REQUEST', url, headers_final, data, params)
+
+        response = getattr(requests, verb)(
+            url, headers=headers_final, data=data, params=params)
+
+        return response
+
     def authenticate(self, username, password):
-        payload = {"username": username,
-                   "password": password}
-        token = self.post('/auth/login', payload).get('token')
+        """Authenticate to get the JWT token and stash it for use with future
+        requests.
+        """
+        payload = {
+            'username': username,
+            'password': password,
+        }
+        token = self.post('/auth/login', data=payload).get('token')
         self.auth_token = 'JWT {token}'.format(token=token)
 
     @property
-    def headers(self):
+    def default_headers(self):
+        """Default headers to talk to the API with."""
         headers = {
-            "content-type": "application/json",
-            "Authorization": self.auth_token,
-            "User-Agent": "gooee-python-sdk {version} ({system})".format(
+            'Content-Type': 'application/json',
+            'Authorization': self.auth_token,
+            'User-Agent': 'gooee-python-sdk {version} ({system})'.format(
                 version=__version__,
                 system=platform(),
             )
         }
         return headers
 
-    def api(self, method, path, data):
-        method = method.strip().lower()
-        if method not in self.allowed_methods:
-            msg = "The '{0}' method is not accepted by Gooee SDK.".format(method)
-            raise IllegalHttpMethod(msg)
-        method = getattr(self, method)
-        return method(path, data)
+    # def api(self, method, path, data):
+    #     method = method.strip().lower()
+    #     if method not in self.allowed_methods:
+    #         msg = "The '{0}' method is not accepted by Gooee SDK.".format(method)
+    #         raise IllegalHttpMethod(msg)
+    #     method = getattr(self, method)
+    #     return method(path, data)
 
     @resource
-    def get(self, path, data=None):
-        path = format_path(path, self.api_base_url)
-
-        if data is None:
-            data = {}
-
-        return requests.get(path, headers=self.headers, params=data or {})
+    def get(self, path, params=None):
+        return self._request('get', path, params=params)
 
     @resource
-    def post(self, path, data=None):
-        path = format_path(path, self.api_base_url)
-        json_data = json.dumps(data or {})
-        return requests.post(path, headers=self.headers, data=json_data)
+    def post(self, path, data=None, params=None):
+        return self._request('post', path, data=data, params=params)
 
     @resource
-    def put(self, path, data=None):
-        path = format_path(path, self.api_base_url)
-        json_data = json.dumps(data or {})
-        return requests.put(path, headers=self.headers, data=json_data)
+    def put(self, path, data=None, params=None):
+        return self._request('put', path, data=data, params=params)
 
     @resource
-    def delete(self, path, data=None):
-        path = format_path(path, self.api_base_url)
-        return requests.delete(path, headers=self.headers, data=data or {})
+    def patch(self, path, data=None, params=None):
+        return self._request('patch', path, data=data, params=params)
+
+    @resource
+    def delete(self, path, data=None, params=None):
+        return self._request('delete', data=data, params=params)
+
+    @resource
+    def options(self, path, params=None):
+        return self._request('options', path, params=params)

@@ -33,6 +33,7 @@ def resource(func):
         except requests.exceptions.ConnectionError as e:
             raise InternetConnectionError(e)
         except:
+            raise
             return payload
         return resource
 

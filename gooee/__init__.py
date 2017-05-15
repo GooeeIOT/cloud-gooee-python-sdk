@@ -19,7 +19,7 @@ __author__ = 'Gooee LLC'
 __email__ = 'dairon@gooee.com'
 __version__ = '0.0.1'
 
-from .client import Gooee  # noqa
+from .client import GooeeClient  # noqa
 
 
 def set_stream_logging(level=logging.DEBUG, format_string=None):
