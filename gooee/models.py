@@ -11,13 +11,11 @@
 # distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
 # ANY KIND, either express or implied. See the License for the specific
 # language governing permissions and limitations under the License.
-import json
+from .compat import json
 
 
 class Resource(object):
-    """
-    Objectify a Response.
-    """
+    """Objectify a Response."""
 
     def __init__(self, response):
         try:
@@ -32,5 +30,9 @@ class Resource(object):
         self.request = response.request
 
     def __repr__(self):
-        return '<{} {} {}:{}>'.format(self.request.method, self.request.url,
-                                      self.status_code, self.reason)
+        return '<{} {} {}:{}>'.format(
+            self.request.method,
+            self.request.url,
+            self.status_code,
+            self.reason
+        )
