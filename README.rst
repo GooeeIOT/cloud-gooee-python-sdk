@@ -1,6 +1,8 @@
 Gooee Python SDK
 ================
 
+> NOTE: Let's keep this repo private until we have something worth showing.
+
 Official Python SDK for Gooee_ API.
 See the LICENSE file for license and copyright information.
 

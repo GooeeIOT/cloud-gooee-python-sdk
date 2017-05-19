@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright 2017 Gooee.com, LLC. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
@@ -19,22 +20,15 @@ from .models import Resource
 
 
 def resource(func):
-    """
-    Converts the returned value from a models.Payload to
-    a models.Resource. Used by the access methods
-    of the client.Gooee object.
-    """
+    """Converts the response to a Resource."""
 
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         try:
-            payload = func(*args, **kwargs)
-            resource = Resource.create(payload)
+            response = func(*args, **kwargs)
         except requests.exceptions.ConnectionError as e:
             raise InternetConnectionError(e)
-        except:
-            raise
-            return payload
-        return resource
+
+        return Resource(response)
 
     return wrapper

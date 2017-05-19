@@ -34,7 +34,7 @@ def set_stream_logging(level=logging.DEBUG, format_string=None):
     :param format_string: Log message format
     """
     if format_string is None:
-        format_string = "%(asctime)s %(name)s [%(levelname)s] %(message)s"
+        format_string = '%(asctime)s %(name)s [%(levelname)s] %(message)s'
 
     logger = logging.getLogger('gooee')
     logger.setLevel(level)

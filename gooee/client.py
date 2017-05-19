@@ -13,13 +13,10 @@
 # language governing permissions and limitations under the License.
 from __future__ import unicode_literals
 
-from copy import deepcopy
 from platform import platform
 
 import requests
-from six.moves import urllib_parse, urllib_request
 
-from .compat import json
 from .decorators import resource
 from .exceptions import IllegalHttpMethod
 from . import __version__
@@ -38,10 +35,11 @@ class GooeeClient(object):
         self.api_base_url = api_base_url
         self.auth_token = ''
 
-    def _request(self, verb, path, headers=None, data=None, params=None):
+    def _request(self, method, path, headers=None, data=None, params=None):
         """Request helper."""
-        if verb not in self.allowed_methods:
-            msg = 'HTTP method {} not supported. Needs to be one of: {}'.format(verb, self.allowed_methods)
+        if method not in self.allowed_methods:
+            msg = 'HTTP method {} not supported. Needs to be one of: {}'.format(
+                method, self.allowed_methods)
             raise IllegalHttpMethod(msg)
 
         url = format_path(path, self.api_base_url)
@@ -51,9 +49,7 @@ class GooeeClient(object):
         if not headers_final['Authorization']:
             headers_final.pop('Authorization')
 
-        print('REQUEST', url, headers_final, data, params)
-
-        response = getattr(requests, verb)(
+        response = getattr(requests, method)(
             url, headers=headers_final, data=data, params=params)
 
         return response
@@ -66,7 +62,7 @@ class GooeeClient(object):
             'username': username,
             'password': password,
         }
-        token = self.post('/auth/login', data=payload).get('token')
+        token = self.post('/auth/login', data=payload).json['token']
         self.auth_token = 'JWT {token}'.format(token=token)
 
     @property
@@ -81,14 +77,6 @@ class GooeeClient(object):
             )
         }
         return headers
-
-    # def api(self, method, path, data):
-    #     method = method.strip().lower()
-    #     if method not in self.allowed_methods:
-    #         msg = "The '{0}' method is not accepted by Gooee SDK.".format(method)
-    #         raise IllegalHttpMethod(msg)
-    #     method = getattr(self, method)
-    #     return method(path, data)
 
     @resource
     def get(self, path, params=None):
