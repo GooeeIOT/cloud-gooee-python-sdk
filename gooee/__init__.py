@@ -19,7 +19,7 @@ __author__ = 'Gooee LLC'
 __email__ = 'dairon@gooee.com'
 __version__ = '0.0.1'
 
-from .client import Gooee  # noqa
+from .client import GooeeClient  # noqa
 
 
 def set_stream_logging(level=logging.DEBUG, format_string=None):
@@ -34,7 +34,7 @@ def set_stream_logging(level=logging.DEBUG, format_string=None):
     :param format_string: Log message format
     """
     if format_string is None:
-        format_string = "%(asctime)s %(name)s [%(levelname)s] %(message)s"
+        format_string = '%(asctime)s %(name)s [%(levelname)s] %(message)s'
 
     logger = logging.getLogger('gooee')
     logger.setLevel(level)

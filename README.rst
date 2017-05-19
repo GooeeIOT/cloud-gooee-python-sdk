@@ -1,6 +1,8 @@
 Gooee Python SDK
 ================
 
+> NOTE: Let's keep this repo private until we have something worth showing.
+
 Official Python SDK for Gooee_ API.
 See the LICENSE file for license and copyright information.
 
@@ -50,10 +52,11 @@ To use the SDK in your project:
 
 .. code-block:: python
 
-    from gooee import Gooee
+    from gooee import GooeeClient
 
-    client = Gooee()
+    client = GooeeClient()
     client.authenticate('username@example.com', 'YourPasswordHere')
+    response = client.get('/buildings')
 
 That is all!
 
