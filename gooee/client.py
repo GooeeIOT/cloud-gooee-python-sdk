@@ -16,7 +16,9 @@ from __future__ import unicode_literals
 from platform import platform
 
 import requests
+from six import string_types
 
+from .compat import json
 from .decorators import resource
 from .exceptions import IllegalHttpMethod
 from . import __version__
@@ -49,8 +51,11 @@ class GooeeClient(object):
         if not headers_final['Authorization']:
             headers_final.pop('Authorization')
 
+        if data and not isinstance(data, string_types):
+            data = json.dumps(data)
+
         response = getattr(requests, method)(
-            url, headers=headers_final, data=data, params=params)
+            url, headers=headers_final, data=data) #, params=params)
 
         return response
 
