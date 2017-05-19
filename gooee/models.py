@@ -18,9 +18,15 @@ class Resource(object):
     """Objectify a Response."""
 
     def __init__(self, response):
+
         try:
             self.json = response.json()
         except json.decoder.JSONDecodeError:
+            # This happens on a DELETE or a response that returns
+            # nothing. We could improve this to only raise when it isn't
+            # that case... but we'd need to know it was expected... or
+            # not. This would also occur when DJANGO is in DEBUG mode
+            # and the traceback webpage is returned in the response.
             self.json = None
         self.text = response.text
         self.elapsed = response.elapsed
