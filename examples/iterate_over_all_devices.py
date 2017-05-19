@@ -1,4 +1,3 @@
-import os
 from time import sleep
 
 from gooee import GooeeClient
