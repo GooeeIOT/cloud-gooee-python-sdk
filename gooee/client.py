@@ -55,7 +55,7 @@ class GooeeClient(object):
             data = json.dumps(data)
 
         response = getattr(requests, method)(
-            url, headers=headers_final, data=data) #, params=params)
+            url, headers=headers_final, data=data, params=params)
 
         return response
 
