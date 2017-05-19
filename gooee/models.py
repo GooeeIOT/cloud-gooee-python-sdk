@@ -28,12 +28,29 @@ class Resource(object):
             # not. This would also occur when DJANGO is in DEBUG mode
             # and the traceback webpage is returned in the response.
             self.json = None
+
         self.text = response.text
         self.elapsed = response.elapsed
         self.headers = response.headers
         self.reason = response.reason
         self.status_code = response.status_code
         self.request = response.request
+        self._response = response
+
+        self._populate_prev_and_next_links()
+
+    def _populate_prev_and_next_links(self):
+        """Populate the previous and next Link headers on the request."""
+        self._prev_link = self._next_link = None
+        links = self._response.headers.get('Link', None)
+        if links:
+            for link, rel in (link.split('; ') for link in links.split(', ')):
+                link = link[1:-1]
+                rel = rel.split('"')[1]
+                if rel == 'prev':
+                    self._prev_link = link
+                elif rel == 'next':
+                    self._next_link = link
 
     def __repr__(self):
         return '<{} {} {}:{}>'.format(

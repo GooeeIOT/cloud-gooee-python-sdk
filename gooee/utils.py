@@ -31,4 +31,4 @@ def format_path(path, api_base_url=GOOEE_API_URL):
     if path.startswith('/'):
         return urllib_parse.urljoin(api_base_url, path.lstrip('/'))
 
-    raise InvalidResourcePath(error_msg)
+    return path
