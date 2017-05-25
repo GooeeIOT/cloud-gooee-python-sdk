@@ -6,9 +6,7 @@ Usage:
     python copy_structure.py -c 095c5c4f-be42-4c5a-98da-20c6e4509799 -o qa1 -u ramon@gooee.com
         -p foo -d localhost -U ramon@gooee.com -P bar
 """
-
-# TODO: Don't give the Manufacturer a unique name.
-# TODO: Remove/move unique identifiers of the names.
+# TODO: Remove temporary unique identifiers of all names.
 
 import pprint
 from argparse import ArgumentParser
@@ -338,9 +336,17 @@ def relate_devices(space):
 
 def upsert_object(obj_type, obj, list_url):
     """Creates or updates the destination object and stores the UUID."""
+    # Determine suitable Name and identifier.
     partial_uuid = obj['id'].split('-')[0]
-    new_name = '{} ({})'.format(obj['name'], partial_uuid)
-    response = d_client.get('{}?name__contains={}&_include=id,name'.format(list_url, partial_uuid))
+    if obj_type in ('Manufacturer', 'Customer'):
+        new_name = obj['name']
+        identifier = obj['name']
+    else:
+        new_name = '{} ({})'.format(obj['name'], partial_uuid)
+        identifier = partial_uuid
+
+    # Locate object
+    response = d_client.get('{}?name__contains={}&_include=id,name'.format(list_url, identifier))
 
     # Update object
     if len(response.json):
