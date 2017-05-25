@@ -6,6 +6,11 @@ Usage:
     python copy_structure.py -c 095c5c4f-be42-4c5a-98da-20c6e4509799 -o qa1 -u ramon@gooee.com
         -p foo -d localhost -U ramon@gooee.com -P bar
 """
+
+# TODO: Don't give the Manufacturer a unique name.
+# TODO: Remove/move unique identifiers of the names.
+
+import pprint
 from argparse import ArgumentParser
 from copy import deepcopy
 
@@ -15,14 +20,14 @@ COPY_STRUCTURE = True
 
 # Fields entirely omitted.
 IGNORED_MANUFACTURER_FIELDS = ('devices_total', 'logo', 'css', 'tags', 'users', 'modified',
-                               'created', 'favicon', 'preferences')
-IGNORED_PRODUCT_FIELDS = ('created', 'modified', 'meta', 'image', 'tags', 'owner',
-                          'manufacturer_name', 'manufacturer_logo', 'activated_date')
+                               'created', 'favicon')
+IGNORED_PRODUCT_FIELDS = ('created', 'modified', 'image', 'tags', 'owner', 'manufacturer_name',
+                          'manufacturer_logo', 'activated_date')
 IGNORED_CUSTOMER_FIELDS = ('created', 'logo', 'modified', 'tags')
-IGNORED_BUILDING_FIELDS = ('meta', 'modified', 'tags', 'users', 'last_activity', 'created')
-IGNORED_SPACE_FIELDS = ('bg_image', 'created', 'last_activity', 'meta', 'modified',
-                        'service_profile', 'tags')
-IGNORED_DEVICE_FIELDS = ('created', 'commissioned_date', 'commission_state', 'meta', 'modified',
+IGNORED_BUILDING_FIELDS = ('modified', 'tags', 'users', 'last_activity', 'created')
+IGNORED_SPACE_FIELDS = ('bg_image', 'created', 'last_activity', 'modified', 'service_profile',
+                        'tags')
+IGNORED_DEVICE_FIELDS = ('created', 'commissioned_date', 'commission_state', 'modified',
                          'custom_fields', 'service_profile', 'tags')
 
 # Fields omitted during initial creation.
@@ -38,7 +43,7 @@ new_ids = {}
 
 def copy_building_devices(building):
     """Copies the Devices of a Building."""
-    response = origin_client.get('/devices?building={}'.format(building['id']))
+    response = o_client.get('/devices?building={}'.format(building['id']))
     if response.status_code != 200:
         raise Exception('[{}]: {}'.format(response.status_code, response.json))
     print('[origin] Found {} Devices for Building: {} ({})'
@@ -50,15 +55,26 @@ def copy_building_devices(building):
         for key in IGNORED_DEVICE_FIELDS:
             device.pop(key)
 
-        if COPY_STRUCTURE:
-            temp_device = deepcopy(device)
+        if not options['structure_only']:
             # Remove old UUIDs
+            temp_device = deepcopy(device)
             for key in DEVICE_PKS:
                 temp_device.pop(key)
 
+            # Apply new UUIDs
             temp_device['product'] = new_ids[device['product']]
             temp_device['building'] = new_ids[device['building']]
-            upsert_object('Building Device', temp_device, '/devices')
+
+            # Update/Create Device
+            meta = temp_device.pop('meta', [])
+            new_obj = upsert_object('Building Device', temp_device, '/devices')
+
+            # Upload Device Meta separately
+            if meta:
+                response = d_client.post('/devices/{}/meta'.format(new_obj['id']), data=meta)
+                if response.status_code != 201:
+                    raise Exception('[{}]: {}'.format(response.status_code, response.json))
+                print('[destination] Updated Device Meta for {}'.format(new_obj['name']))
 
         # Only display the Device without Spaces
         if not device['spaces']:
@@ -69,7 +85,7 @@ def copy_building_devices(building):
 
 def copy_building_spaces(building):
     """Copies the Spaces of a Building."""
-    response = origin_client.get('/spaces?building={}'.format(building['id']))
+    response = o_client.get('/spaces?building={}'.format(building['id']))
     print('[origin] Found {} Spaces for Building: {} ({})'
           .format(len(response.json), building['name'], building['id']))
 
@@ -79,21 +95,29 @@ def copy_building_spaces(building):
         for key in IGNORED_SPACE_FIELDS:
             space.pop(key)
 
-        if COPY_STRUCTURE:
-            temp_space = deepcopy(space)
+        if not options['structure_only']:
             # Remove old UUIDs
+            temp_space = deepcopy(space)
             for key in SPACE_PKS:
                 temp_space.pop(key)
 
+            # Apply new UUIDs
             temp_space['building'] = new_ids[space['building']]
-            upsert_object('Building Space', temp_space, '/spaces')
 
-        if not space['child_spaces']:
-            space.pop('child_spaces')
-        else:
-            space['child_spaces'] = relate_spaces(space)
+            meta = temp_space.pop('meta', [])
+            new_obj = upsert_object('Building Space', temp_space, '/spaces')
 
+            # Upload Space Meta separately
+            if meta:
+                response = d_client.post('/spaces/{}/meta'.format(new_obj['id']), data=meta)
+                if response.status_code != 201:
+                    raise Exception('[{}]: {}'.format(response.status_code, response.json))
+                print('[destination] Updated Space Meta for {}'.format(new_obj['name']))
+
+        space['child_spaces'] = relate_spaces(space) if space['child_spaces'] else []
         space['devices'] = relate_devices(space)
+
+        # Hide Building Devices that will be displayed on Spaces.
         if not space['parent_space']:
             space.pop('parent_space')
             spaces.append(space)
@@ -104,7 +128,7 @@ def copy_building_spaces(building):
 def copy_customer(customer_id):
     """Copies the Customer."""
     # Fetch Customer
-    response = origin_client.get('/customers/{}'.format(customer_id))
+    response = o_client.get('/customers/{}'.format(customer_id))
     if response.status_code != 200:
         raise Exception('[origin]: Cannot locate Customer')
     customer = response.json
@@ -113,11 +137,13 @@ def copy_customer(customer_id):
     for key in IGNORED_CUSTOMER_FIELDS:
         customer.pop(key)
 
-    if COPY_STRUCTURE:
-        temp_customer = deepcopy(customer)
+    if not options['structure_only']:
         # Remove old UUIDs
+        temp_customer = deepcopy(customer)
         for key in CUSTOMER_PKS:
             temp_customer.pop(key)
+
+        # Apply new UUIDs
         temp_customer['partner'] = new_ids[customer['partner']]
         upsert_object('Customer', temp_customer, '/customers')
 
@@ -128,7 +154,7 @@ def copy_customer(customer_id):
 
 def copy_customer_buildings(customer):
     """Copies the Buildings of the Customer."""
-    response = origin_client.get('/buildings?customer={}'.format(customer['id']))
+    response = o_client.get('/buildings?customer={}'.format(customer['id']))
     print('[origin] Found {} Buildings for Customer: {} ({})'
           .format(len(response.json), customer['name'], customer['id']))
 
@@ -138,13 +164,24 @@ def copy_customer_buildings(customer):
         for key in IGNORED_BUILDING_FIELDS:
             building.pop(key)
 
-        if COPY_STRUCTURE:
-            temp_building = deepcopy(building)
+        if not options['structure_only']:
             # Remove old UUIDs
+            temp_building = deepcopy(building)
             for key in BUILDING_PKS:
                 temp_building.pop(key)
+
+            # Apply new UUIDs
             temp_building['customer'] = new_ids[building['customer']]
-            upsert_object('Building', temp_building, '/buildings')
+
+            meta = temp_building.pop('meta', [])
+            new_obj = upsert_object('Building', temp_building, '/buildings')
+
+            # Upload Building Meta separately
+            if meta:
+                response = d_client.post('/buildings/{}/meta'.format(new_obj['id']), data=meta)
+                if response.status_code != 201:
+                    raise Exception('[{}]: {}'.format(response.status_code, response.json))
+                print('[destination] Updated Building Meta for {}'.format(new_obj['name']))
 
         building['devices'] = copy_building_devices(building)
         building['spaces'] = copy_building_spaces(building)
@@ -156,7 +193,7 @@ def copy_customer_buildings(customer):
 def copy_manufacturer(customer_id):
     """Copies the Manufacturer of the Customer and related objects down to Device."""
     # Identify Customer
-    response = origin_client.get('/customers/{}'.format(customer_id))
+    response = o_client.get('/customers/{}'.format(customer_id))
     if response.status_code != 200:
         raise Exception('[origin]: Cannot locate Customer')
     customer_id, customer_name = response.json['id'], response.json['name']
@@ -164,7 +201,7 @@ def copy_manufacturer(customer_id):
 
     # Identify Partner/Manufacturer of Customer
     print('[origin] Locating Manufacturer for Customer: {}'.format(customer_name))
-    response = origin_client.get('/partners?customers__id={}'.format(customer_id))
+    response = o_client.get('/partners?customers__id={}'.format(customer_id))
     if len(response.json) == 1:
         manufacturer = response.json[0]
     else:
@@ -173,11 +210,12 @@ def copy_manufacturer(customer_id):
     for key in IGNORED_MANUFACTURER_FIELDS:
         manufacturer.pop(key)
 
-    if COPY_STRUCTURE:
-        temp_manufacturer = deepcopy(manufacturer)
+    if not options['structure_only']:
         # Remove old UUIDs
+        temp_manufacturer = deepcopy(manufacturer)
         for key in MANUFACTURER_PKS:
             temp_manufacturer.pop(key)
+
         upsert_object('Manufacturer', temp_manufacturer, '/partners')
 
     manufacturer['products'] = copy_manufacturer_products(manufacturer)
@@ -188,7 +226,7 @@ def copy_manufacturer(customer_id):
 
 def copy_manufacturer_products(manufacturer):
     """Copies the Products of the Manufacturer."""
-    response = origin_client.get('/products?manufacturer={}'.format(manufacturer['id']))
+    response = o_client.get('/products?manufacturer={}'.format(manufacturer['id']))
     print('[origin] Found {} Products for Manufacturer: {} ({})'
           .format(len(response.json), manufacturer['name'], manufacturer['id']))
 
@@ -198,20 +236,41 @@ def copy_manufacturer_products(manufacturer):
         for key in IGNORED_PRODUCT_FIELDS:
             product.pop(key)
 
-        if COPY_STRUCTURE:
-            temp_product = deepcopy(product)
+        if not options['structure_only']:
             # Remove old UUIDs
+            temp_product = deepcopy(product)
             for key in PRODUCT_PKS:
                 temp_product.pop(key)
+
+            # Apply new UUIDs
             temp_product['manufacturer'] = new_ids[product['manufacturer']]
 
+            meta = temp_product.pop('meta', [])
+            specs = temp_product.pop('specs', [])
             new_obj = upsert_object('Product', temp_product, '/products')
+
+            # Upload Product Meta separately
+            if meta:
+                response = d_client.post('/products/{}/meta'.format(new_obj['id']), data=meta)
+                if response.status_code != 201:
+                    raise Exception('[{}]: {}'.format(response.status_code, response.json))
+                print('[destination] Updated Product Meta for {}'.format(new_obj['name']))
+
+            # Update Product Specs and Activate Product
             if product['state'] == 'active' and new_obj['state'] != 'active':
-                destination_client.put('/products/{}/activate'.format(new_obj['id']))
+                response = d_client.patch('/products/{}'
+                                          .format(new_obj['id']), data={'specs': specs})
+                if response.status_code != 200:
+                    print(response)
+                    raise Exception('[{}]: {}'.format(response.status_code, response.json))
+
+                response = d_client.put('/products/{}/activate'.format(new_obj['id']))
+                if response.status_code != 204:
+                    print(response)
+                    raise Exception('[{}]: {}'.format(response.status_code, response.json))
                 print('[destination] Activated Product: {} ({})'.format(new_obj['name'],
                                                                         new_obj['id']))
 
-        product.pop('specs')
         new_products.append(product)
 
     return new_products
@@ -219,35 +278,28 @@ def copy_manufacturer_products(manufacturer):
 
 def relate_spaces(space):
     """Relates the newly copied Spaces to each other."""
-    response = origin_client.get('/spaces?parent_space={}'.format(space['id']))
+    response = o_client.get('/spaces?parent_space={}'.format(space['id']))
     print('[origin] Found {} Spaces for Space: {} ({})'
           .format(len(response.json), space['name'], space['id']))
 
     spaces = []
     for child_space in response.json:
-        if not child_space['child_spaces']:
-            child_space.pop('child_spaces')
-        else:
-            child_space['child_spaces'] = relate_spaces(child_space)
+        child_space['child_spaces'] = relate_spaces(child_space) \
+            if child_space['child_spaces'] else []
+        child_space['devices'] = relate_devices(child_space) if child_space['devices'] else []
 
-        if not child_space['devices']:
-            child_space.pop('devices')
-        else:
-            child_space['devices'] = relate_devices(child_space)
+        if not options['structure_only']:
+            temp_child_space = {
+                'id': child_space['id'],
+                'name': child_space['name'],
+                'parent_space': new_ids[child_space['parent_space']]
+                if child_space['parent_space'] else None,
+            }
+            upsert_object('Child Space', temp_child_space, '/spaces')
 
         # Remove ignored fields
         for key in IGNORED_SPACE_FIELDS:
             child_space.pop(key)
-
-        if COPY_STRUCTURE:
-            response = destination_client.get('/spaces/{}'.format(new_ids[child_space['id']]))
-            if response.status_code != 200:
-                raise Exception('[{}]: {}'.format(response.status_code, response.json))
-
-            temp_child_space = response.json
-            temp_child_space['id'] = child_space['id']
-            temp_child_space['parent_space'] = new_ids[child_space['parent_space']]
-            upsert_object('Child Space', temp_child_space, '/spaces', updating=True)
 
         spaces.append(child_space)
 
@@ -256,7 +308,7 @@ def relate_spaces(space):
 
 def relate_devices(space):
     """Relates the Devices to their Spaces and Devices."""
-    response = origin_client.get('/devices?spaces={}'.format(space['id']))
+    response = o_client.get('/devices?spaces={}'.format(space['id']))
     if response.status_code != 200:
         raise Exception('[{}]: {}'.format(response.status_code, response.json))
 
@@ -265,58 +317,51 @@ def relate_devices(space):
 
     devices = []
     for device in response.json:
+        if not options['structure_only']:
+            temp_device = {
+                'id': device['id'],
+                'name': device['name'],
+                'parent_device': new_ids[device['parent_device']]
+                if device['parent_device'] else None,
+                'spaces': [new_ids[space_id] for space_id in device['spaces']],
+            }
+            upsert_object('Space Device', temp_device, '/devices')
+
         # Remove ignored fields
         for key in IGNORED_DEVICE_FIELDS:
             device.pop(key)
-
-        if COPY_STRUCTURE:
-            response = destination_client.get('/devices/{}'.format(new_ids[device['id']]))
-            if response.status_code != 200:
-                raise Exception('[{}]: {}'.format(response.status_code, response.json))
-
-            temp_device = response.json
-            temp_device['id'] = device['id']
-            if device['parent_device']:
-                temp_device['parent_device'] = new_ids[device['parent_device']]
-            temp_device['spaces'] = [new_ids[space_id] for space_id in device['spaces']]
-            upsert_object('Space Device', temp_device, '/devices', updating=True)
 
         devices.append(device)
 
     return devices
 
 
-def upsert_object(obj_type, obj, list_url, updating=False):
+def upsert_object(obj_type, obj, list_url):
     """Creates or updates the destination object and stores the UUID."""
     partial_uuid = obj['id'].split('-')[0]
-    new_name = obj['name'] if updating else '{} ({})'.format(obj['name'], partial_uuid)
-    response = destination_client.get('{}?name__contains={}'.format(list_url, partial_uuid))
+    new_name = '{} ({})'.format(obj['name'], partial_uuid)
+    response = d_client.get('{}?name__contains={}&_include=id,name'.format(list_url, partial_uuid))
 
+    # Update object
     if len(response.json):
-        new_obj = obj if updating else deepcopy(response.json[0])
+        new_obj = deepcopy(obj)
         new_obj['id'] = response.json[0]['id']
-        new_obj['name'] = new_name
-        print('[destination] Found a matching {}: {} ({})'.format(obj_type, obj['name'], obj['id']))
-
-        # Remove Product Specs for Active Products
-        # TODO: Move this!
-        if new_obj.get('state', 'draft') == 'active' and 'specs' in new_obj:
-            new_obj.pop('specs')
-
-        response = destination_client.patch(list_url + '/{}'.format(new_obj['id']), data=new_obj)
+        new_obj['name'] = response.json[0]['name']
+        response = d_client.patch(list_url + '/{}'.format(new_obj['id']), data=new_obj)
         if response.status_code != 200:
             raise Exception('[{}] {}: {}'.format(response.status_code, obj_type, response.json))
         print('[destination] Updated {}: {} ({})'.format(obj_type, obj['name'], obj['id']))
+    # Create object
     else:
         new_obj = deepcopy(obj)
         new_obj['name'] = new_name
-        response = destination_client.post(list_url, data=new_obj)
+        response = d_client.post(list_url, data=new_obj)
         if response.status_code != 201:
             raise Exception('[{}] {}: {}'.format(response.status_code, obj_type, response.json))
-        new_obj = response.json
         print('[destination] Created {}: {} ({})'.format(obj_type, obj['name'], obj['id']))
 
     # Store new UUID.  Look-up using old UUID as key.
+    new_obj = response.json
     new_ids[obj['id']] = new_obj['id']
 
     return new_obj
@@ -334,20 +379,24 @@ if __name__ == '__main__':
                         required=True)
     parser.add_argument('-P', '--destination-pass', help='Destination API Password',
                         required=True)
+    parser.add_argument('-s', '--structure-only', help='Display the API structure, don\'t copy',
+                        action='store_true')
     (options, args) = parser.parse_known_args()
     options = vars(options)
 
     # Clean Origin/Destination
-    for key in ('origin', 'destination'):
-        options[key] = 'http://{}-api.gooee.io'.format(options[key]) \
-            if options[key] != 'localhost' else 'http://localhost:8000'
+    for field in ('origin', 'destination'):
+        options[field] = 'http://{}-api.gooee.io'.format(options[field]) \
+            if options[field] != 'localhost' else 'http://localhost:8000'
     print('Copying Customer from {} to {}'.format(options['origin'], options['destination']))
 
     # Configure clients
-    origin_client = GooeeClient(api_base_url=options['origin'])
-    origin_client.authenticate(options['origin_user'], options['origin_pass'])
-    destination_client = GooeeClient(api_base_url=options['destination'])
-    destination_client.authenticate(options['destination_user'], options['destination_pass'])
+    o_client = GooeeClient(api_base_url=options['origin'])
+    o_client.authenticate(options['origin_user'], options['origin_pass'])
+    d_client = GooeeClient(api_base_url=options['destination'])
+    d_client.authenticate(options['destination_user'], options['destination_pass'])
 
     # Initiate copy
     structure = copy_manufacturer(options['customer'])
+    if options['structure_only']:
+        pprint.pprint(structure)
