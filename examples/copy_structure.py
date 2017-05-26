@@ -6,8 +6,6 @@ Usage:
     python copy_structure.py -c 095c5c4f-be42-4c5a-98da-20c6e4509799 -o qa1 -u ramon@gooee.com
         -p foo -d localhost -U ramon@gooee.com -P bar
 """
-# TODO: Remove temporary unique identifiers of all names.
-
 import pprint
 from argparse import ArgumentParser
 from copy import deepcopy
@@ -36,7 +34,14 @@ BUILDING_PKS = ('customer', 'spaces')
 SPACE_PKS = ('scenes', 'connected_products', 'building', 'parent_space', 'devices', 'child_spaces')
 DEVICE_PKS = ('building', 'connected_products', 'spaces', 'parent_device', 'child_devices')
 
-new_ids = {}
+ids = {
+    'partners': {},
+    'customers': {},
+    'products': {},
+    'buildings': {},
+    'spaces': {},
+    'devices': {},
+}
 
 
 def copy_building_devices(building):
@@ -60,12 +65,13 @@ def copy_building_devices(building):
                 temp_device.pop(key)
 
             # Apply new UUIDs
-            temp_device['product'] = new_ids[device['product']]
-            temp_device['building'] = new_ids[device['building']]
+            temp_device['product'] = ids['products'][device['product']]
+            temp_device['building'] = ids['buildings'][device['building']]
 
-            # Update/Create Device
+            # Update/Create Device and store the UUID
             meta = temp_device.pop('meta', [])
             new_obj = upsert_object('Building Device', temp_device, '/devices')
+            ids['devices'][device['id']] = new_obj['id']
 
             # Upload Device Meta separately
             if meta:
@@ -100,10 +106,12 @@ def copy_building_spaces(building):
                 temp_space.pop(key)
 
             # Apply new UUIDs
-            temp_space['building'] = new_ids[space['building']]
+            temp_space['building'] = ids['buildings'][space['building']]
 
+            # Update/Create Space and store the UUID
             meta = temp_space.pop('meta', [])
             new_obj = upsert_object('Building Space', temp_space, '/spaces')
+            ids['spaces'][space['id']] = new_obj['id']
 
             # Upload Space Meta separately
             if meta:
@@ -142,8 +150,11 @@ def copy_customer(customer_id):
             temp_customer.pop(key)
 
         # Apply new UUIDs
-        temp_customer['partner'] = new_ids[customer['partner']]
-        upsert_object('Customer', temp_customer, '/customers')
+        temp_customer['partner'] = ids['partners'][customer['partner']]
+
+        # Update/Create Customer and store the UUID
+        new_obj = upsert_object('Customer', temp_customer, '/customers')
+        ids['customers'][customer['id']] = new_obj['id']
 
     customer['buildings'] = copy_customer_buildings(customer)
 
@@ -169,10 +180,12 @@ def copy_customer_buildings(customer):
                 temp_building.pop(key)
 
             # Apply new UUIDs
-            temp_building['customer'] = new_ids[building['customer']]
+            temp_building['customer'] = ids['customers'][building['customer']]
 
+            # Update/Create Building and store the UUID
             meta = temp_building.pop('meta', [])
             new_obj = upsert_object('Building', temp_building, '/buildings')
+            ids['buildings'][building['id']] = new_obj['id']
 
             # Upload Building Meta separately
             if meta:
@@ -214,7 +227,9 @@ def copy_manufacturer(customer_id):
         for key in MANUFACTURER_PKS:
             temp_manufacturer.pop(key)
 
-        upsert_object('Manufacturer', temp_manufacturer, '/partners')
+        # Update/Create Manufacturer and store the UUID
+        new_obj = upsert_object('Manufacturer', temp_manufacturer, '/partners')
+        ids['partners'][manufacturer['id']] = new_obj['id']
 
     manufacturer['products'] = copy_manufacturer_products(manufacturer)
     manufacturer['customers'] = copy_customer(customer_id)
@@ -241,11 +256,15 @@ def copy_manufacturer_products(manufacturer):
                 temp_product.pop(key)
 
             # Apply new UUIDs
-            temp_product['manufacturer'] = new_ids[product['manufacturer']]
+            temp_product['manufacturer'] = ids['partners'][product['manufacturer']]
 
+            # Remove Meta and Specs for separate updates.
             meta = temp_product.pop('meta', [])
             specs = temp_product.pop('specs', [])
+
+            # Update/Create Product and store the UUID
             new_obj = upsert_object('Product', temp_product, '/products')
+            ids['products'][product['id']] = new_obj['id']
 
             # Upload Product Meta separately
             if meta:
@@ -290,7 +309,7 @@ def relate_spaces(space):
             temp_child_space = {
                 'id': child_space['id'],
                 'name': child_space['name'],
-                'parent_space': new_ids[child_space['parent_space']]
+                'parent_space': ids['spaces'][child_space['parent_space']]
                 if child_space['parent_space'] else None,
             }
             upsert_object('Child Space', temp_child_space, '/spaces')
@@ -319,9 +338,9 @@ def relate_devices(space):
             temp_device = {
                 'id': device['id'],
                 'name': device['name'],
-                'parent_device': new_ids[device['parent_device']]
+                'parent_device': ids['devices'][device['parent_device']]
                 if device['parent_device'] else None,
-                'spaces': [new_ids[space_id] for space_id in device['spaces']],
+                'spaces': [ids['spaces'][space_id] for space_id in device['spaces']],
             }
             upsert_object('Space Device', temp_device, '/devices')
 
@@ -332,6 +351,17 @@ def relate_devices(space):
         devices.append(device)
 
     return devices
+
+
+def restore_names():
+    """Restores the original names of the objects."""
+    # TODO: Not so many requests would be nice.
+    for obj_type in ('buildings', 'spaces', 'devices', 'products'):
+        print('Restoring original names for {}'.format(obj_type.title()))
+        for old_id, new_id in ids[obj_type].items():
+            response = d_client.get('/{}/{}'.format(obj_type, new_id))
+            original_name = response.json['name'].replace(' ({})'.format(old_id.split('-')[0]), '')
+            d_client.patch('/{}/{}'.format(obj_type, new_id), data={'name': original_name})
 
 
 def upsert_object(obj_type, obj, list_url):
@@ -366,11 +396,7 @@ def upsert_object(obj_type, obj, list_url):
             raise Exception('[{}] {}: {}'.format(response.status_code, obj_type, response.json))
         print('[destination] Created {}: {} ({})'.format(obj_type, obj['name'], obj['id']))
 
-    # Store new UUID.  Look-up using old UUID as key.
-    new_obj = response.json
-    new_ids[obj['id']] = new_obj['id']
-
-    return new_obj
+    return response.json
 
 if __name__ == '__main__':
     """Copy Customer API structure to another API instance."""
@@ -406,3 +432,4 @@ if __name__ == '__main__':
     structure = copy_manufacturer(options['customer'])
     if options['structure_only']:
         pprint.pprint(structure)
+    restore_names()
