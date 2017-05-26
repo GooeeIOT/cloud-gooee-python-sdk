@@ -220,7 +220,6 @@ def copy_manufacturers(customer_id):
         raise Exception('[origin] Manufacturer not found for Customer {}'.format(customer_name))
 
     # Identify Partners of Device Products
-    # TODO: Omit duplicate Partner likely to show up.
     dresponse = o_client.get('/devices/?building__customer={}&_include=product'.format(customer_id))
     product_ids = set([d['product'] for d in dresponse.json] if dresponse.json else [])
     dpresponse = o_client.get('/partners/?customers!={}'.format(customer_id))
