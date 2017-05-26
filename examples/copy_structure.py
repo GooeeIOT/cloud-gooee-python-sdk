@@ -201,7 +201,7 @@ def copy_customer_buildings(customer):
     return new_buildings
 
 
-def copy_manufacturer(customer_id):
+def copy_manufacturers(customer_id):
     """Copies the Manufacturer of the Customer and related objects down to Device."""
     # Identify Customer
     response = o_client.get('/customers/{}'.format(customer_id))
@@ -210,31 +210,49 @@ def copy_manufacturer(customer_id):
     customer_id, customer_name = response.json['id'], response.json['name']
     print('[origin] Found Customer: {}'.format(customer_name))
 
-    # Identify Partner/Manufacturer of Customer
+    # Identify Partner of Customer
     print('[origin] Locating Manufacturer for Customer: {}'.format(customer_name))
-    response = o_client.get('/partners?customers__id={}'.format(customer_id))
-    if len(response.json) == 1:
-        manufacturer = response.json[0]
+    pcresponse = o_client.get('/partners?customers__id={}'.format(customer_id))
+    if len(pcresponse.json) == 1:
+        manufacturers = [pcresponse.json[0]]
     else:
         raise Exception('[origin] Manufacturer not found for Customer {}'.format(customer_name))
 
-    for key in IGNORED_MANUFACTURER_FIELDS:
-        manufacturer.pop(key)
+    # Identify Partners of Device Products
+    dresponse = o_client.get('/devices/?building__customer={}&_include=product'.format(customer_id))
+    product_ids = [d['product'] for d in dresponse.json] if dresponse.json else []
+    dpresponse = o_client.get('/partners/?products__in={}'.format(','.join(set(product_ids))))
+    manufacturers += dpresponse.json if dpresponse else []
 
-    if not options['structure_only']:
-        # Remove old UUIDs
-        temp_manufacturer = deepcopy(manufacturer)
-        for key in MANUFACTURER_PKS:
-            temp_manufacturer.pop(key)
+    initial_results = []
 
-        # Update/Create Manufacturer and store the UUID
-        new_obj = upsert_object('Manufacturer', temp_manufacturer, '/partners')
-        ids['partners'][manufacturer['id']] = new_obj['id']
+    # Populate Partners
+    for manufacturer in manufacturers:
+        for key in IGNORED_MANUFACTURER_FIELDS:
+            manufacturer.pop(key)
 
-    manufacturer['products'] = copy_manufacturer_products(manufacturer)
-    manufacturer['customers'] = copy_customer(customer_id)
+        if not options['structure_only']:
+            # Remove old UUIDs
+            temp_manufacturer = deepcopy(manufacturer)
+            for key in MANUFACTURER_PKS:
+                temp_manufacturer.pop(key)
 
-    return manufacturer
+            # Update/Create Manufacturer and store the UUID
+            new_obj = upsert_object('Manufacturer', temp_manufacturer, '/partners')
+            ids['partners'][manufacturer['id']] = new_obj['id']
+
+        # Populate Partner Products
+        manufacturer['products'] = copy_manufacturer_products(manufacturer)
+        initial_results.append(manufacturer)
+
+    # Fetch specified Customer of appropriate Manufacturer
+    secondary_results = []
+    for manufacturer in manufacturers:
+        if pcresponse.json[0]['id'] == manufacturer['id']:
+            manufacturer['customers'] = copy_customer(customer_id)
+        secondary_results.append(manufacturer)
+
+    return secondary_results
 
 
 def copy_manufacturer_products(manufacturer):
@@ -429,7 +447,7 @@ if __name__ == '__main__':
     d_client.authenticate(options['destination_user'], options['destination_pass'])
 
     # Initiate copy
-    structure = copy_manufacturer(options['customer'])
+    structure = copy_manufacturers(options['customer'])
     if options['structure_only']:
         pprint.pprint(structure)
     restore_names()
