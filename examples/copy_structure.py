@@ -6,23 +6,19 @@ Usage:
     python copy_structure.py -c 095c5c4f-be42-4c5a-98da-20c6e4509799 -o qa1 -u ramon@gooee.com
         -p foo -d localhost -U ramon@gooee.com -P bar
 """
-import pprint
+import base64, pprint, requests
 from argparse import ArgumentParser
 from copy import deepcopy
 
 from gooee import GooeeClient
 
-COPY_STRUCTURE = True
-
 # Fields entirely omitted.
-IGNORED_MANUFACTURER_FIELDS = ('devices_total', 'logo', 'css', 'tags', 'users', 'modified',
-                               'created', 'favicon')
-IGNORED_PRODUCT_FIELDS = ('created', 'modified', 'image', 'tags', 'owner', 'manufacturer_name',
-                          'manufacturer_logo', 'activated_date')
-IGNORED_CUSTOMER_FIELDS = ('created', 'logo', 'modified', 'tags')
+IGNORED_MANUFACTURER_FIELDS = ('devices_total', 'css', 'tags', 'users', 'modified', 'created')
+IGNORED_PRODUCT_FIELDS = ('created', 'modified', 'tags', 'owner', 'manufacturer_name',
+                          'activated_date')
+IGNORED_CUSTOMER_FIELDS = ('created', 'modified', 'tags')
 IGNORED_BUILDING_FIELDS = ('modified', 'tags', 'users', 'last_activity', 'created')
-IGNORED_SPACE_FIELDS = ('bg_image', 'created', 'last_activity', 'modified', 'service_profile',
-                        'tags')
+IGNORED_SPACE_FIELDS = ('created', 'last_activity', 'modified', 'service_profile', 'tags')
 IGNORED_DEVICE_FIELDS = ('created', 'commissioned_date', 'commission_state', 'modified',
                          'custom_fields', 'service_profile', 'tags')
 
@@ -105,6 +101,9 @@ def copy_building_spaces(building):
             # Apply new UUIDs
             temp_space['building'] = ids['buildings'][space['building']]
 
+            # Retain Logo
+            temp_space['bg_image'] = get_image_data(space, 'bg_image')
+
             # Update/Create Space and store the UUID
             meta = temp_space.pop('meta', [])
             new_obj = upsert_object('Building Space', temp_space, '/spaces')
@@ -145,6 +144,9 @@ def copy_customer(customer_id):
 
         # Apply new UUIDs
         temp_customer['partner'] = ids['partners'][customer['partner']]
+
+        # Retain Logo
+        temp_customer['logo'] = get_image_data(customer, 'logo')
 
         # Update/Create Customer and store the UUID
         new_obj = upsert_object('Customer', temp_customer, '/customers')
@@ -236,6 +238,10 @@ def copy_manufacturers(customer_id):
             for key in MANUFACTURER_PKS:
                 temp_manufacturer.pop(key)
 
+            # Retain Images
+            for key in ('logo', 'favicon'):
+                temp_manufacturer[key] = get_image_data(manufacturer, key)
+
             # Update/Create Manufacturer and store the UUID
             new_obj = upsert_object('Manufacturer', temp_manufacturer, '/partners')
             ids['partners'][manufacturer['id']] = new_obj['id']
@@ -278,6 +284,10 @@ def copy_manufacturer_products(manufacturer):
             # Remove Meta and Specs for separate updates.
             meta = temp_product.pop('meta', [])
             specs = temp_product.pop('specs', [])
+
+            # Retain Images
+            for key in ('image', 'manufacturer_logo'):
+                temp_product[key] = get_image_data(product, key)
 
             # Update/Create Product and store the UUID
             new_obj = upsert_object('Product', temp_product, '/products')
@@ -380,7 +390,7 @@ def relate_devices(space):
 def restore_names():
     """Restores the original names of the objects."""
     for obj_type in ('buildings', 'spaces', 'devices', 'products'):
-        print('Restoring original names for {}'.format(obj_type.title()))
+        print('[destination] Restoring original names for {}'.format(obj_type.title()))
         for old_id, new_id in ids[obj_type].items():
             response = d_client.get('/{}/{}'.format(obj_type, new_id))
             original_name = response.json['name'].replace(' ({})'.format(old_id.split('-')[0]), '')
@@ -399,6 +409,16 @@ def update_meta(obj_type, obj, meta):
     if response.status_code != 201:
         raise Exception('[{}]: {}'.format(response.status_code, response.json))
     print('[destination] Updated {} Meta for {}'.format(obj_type, obj['name']))
+
+
+def get_image_data(data, key):
+    """Gets the field data for an image."""
+    image_url = data.pop(key)
+    if image_url:
+        image_response = requests.get(image_url, stream=True)
+        return base64.b64encode(image_response.raw.read())
+
+    return ''
 
 
 def upsert_object(obj_type, obj, list_url):
@@ -422,7 +442,7 @@ def upsert_object(obj_type, obj, list_url):
         new_obj['name'] = response.json[0]['name']
         response = d_client.patch(list_url + '/{}'.format(new_obj['id']), data=new_obj)
         if response.status_code != 200:
-            raise Exception('[{}] {}: {}'.format(response.status_code, obj_type, response.json))
+            raise Exception('[{}] {}: {}'.format(response.status_code, obj_type, response.text))
         print('[destination] Updated {}: {} ({})'.format(obj_type, obj['name'], obj['id']))
     # Create object
     else:
@@ -430,7 +450,7 @@ def upsert_object(obj_type, obj, list_url):
         new_obj['name'] = new_name
         response = d_client.post(list_url, data=new_obj)
         if response.status_code != 201:
-            raise Exception('[{}] {}: {}'.format(response.status_code, obj_type, response.json))
+            raise Exception('[{}] {}: {}'.format(response.status_code, obj_type, response.text))
         print('[destination] Created {}: {} ({})'.format(obj_type, obj['name'], obj['id']))
 
     return response.json
@@ -469,4 +489,4 @@ if __name__ == '__main__':
     structure = copy_manufacturers(options['customer'])
     if options['structure_only']:
         pprint.pprint(structure)
-    restore_names()
+    # restore_names()
