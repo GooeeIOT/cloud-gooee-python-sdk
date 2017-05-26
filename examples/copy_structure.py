@@ -75,10 +75,7 @@ def copy_building_devices(building):
 
             # Upload Device Meta separately
             if meta:
-                response = d_client.post('/devices/{}/meta'.format(new_obj['id']), data=meta)
-                if response.status_code != 201:
-                    raise Exception('[{}]: {}'.format(response.status_code, response.json))
-                print('[destination] Updated Device Meta for {}'.format(new_obj['name']))
+                update_meta('Device', new_obj, meta)
 
         # Only display the Device without Spaces
         if not device['spaces']:
@@ -115,10 +112,7 @@ def copy_building_spaces(building):
 
             # Upload Space Meta separately
             if meta:
-                response = d_client.post('/spaces/{}/meta'.format(new_obj['id']), data=meta)
-                if response.status_code != 201:
-                    raise Exception('[{}]: {}'.format(response.status_code, response.json))
-                print('[destination] Updated Space Meta for {}'.format(new_obj['name']))
+                update_meta('Space', new_obj, meta)
 
         space['child_spaces'] = relate_spaces(space) if space['child_spaces'] else []
         space['devices'] = relate_devices(space)
@@ -189,10 +183,7 @@ def copy_customer_buildings(customer):
 
             # Upload Building Meta separately
             if meta:
-                response = d_client.post('/buildings/{}/meta'.format(new_obj['id']), data=meta)
-                if response.status_code != 201:
-                    raise Exception('[{}]: {}'.format(response.status_code, response.json))
-                print('[destination] Updated Building Meta for {}'.format(new_obj['name']))
+                update_meta('Building', new_obj, meta)
 
         building['devices'] = copy_building_devices(building)
         building['spaces'] = copy_building_spaces(building)
@@ -202,7 +193,11 @@ def copy_customer_buildings(customer):
 
 
 def copy_manufacturers(customer_id):
-    """Copies the Manufacturer of the Customer and related objects down to Device."""
+    """
+    Copies the Manufacturer of the Customer and related objects down to Device.
+
+    A Customer might have a Partner different than the one that owns the Products they use.
+    """
     # Identify Customer
     response = o_client.get('/customers/{}'.format(customer_id))
     if response.status_code != 200:
@@ -211,7 +206,7 @@ def copy_manufacturers(customer_id):
     print('[origin] Found Customer: {}'.format(customer_name))
 
     # Identify Partner of Customer
-    print('[origin] Locating Manufacturer for Customer: {}'.format(customer_name))
+    print('[origin] Locating Manufacturer(s) for Customer: {}'.format(customer_name))
     pcresponse = o_client.get('/partners?customers__id={}'.format(customer_id))
     if len(pcresponse.json) == 1:
         manufacturers = [pcresponse.json[0]]
@@ -220,14 +215,18 @@ def copy_manufacturers(customer_id):
 
     # Identify Partners of Device Products
     dresponse = o_client.get('/devices/?building__customer={}&_include=product'.format(customer_id))
-    product_ids = [d['product'] for d in dresponse.json] if dresponse.json else []
-    dpresponse = o_client.get('/partners/?products__in={}'.format(','.join(set(product_ids))))
+    product_ids = set([d['product'] for d in dresponse.json] if dresponse.json else [])
+    dpresponse = o_client.get('/partners')
     manufacturers += dpresponse.json if dpresponse else []
 
-    initial_results = []
-
     # Populate Partners
+    initial_results = []
     for manufacturer in manufacturers:
+        # Skip Partners that don't match our Products and/or Customer
+        if not product_ids.intersection(set(manufacturer['products'])) \
+                and customer_id not in manufacturer['customers']:
+            continue
+
         for key in IGNORED_MANUFACTURER_FIELDS:
             manufacturer.pop(key)
 
@@ -245,9 +244,9 @@ def copy_manufacturers(customer_id):
         manufacturer['products'] = copy_manufacturer_products(manufacturer)
         initial_results.append(manufacturer)
 
-    # Fetch specified Customer of appropriate Manufacturer
+    # Only fetch the Customer of interest.
     secondary_results = []
-    for manufacturer in manufacturers:
+    for manufacturer in initial_results:
         if pcresponse.json[0]['id'] == manufacturer['id']:
             manufacturer['customers'] = copy_customer(customer_id)
         secondary_results.append(manufacturer)
@@ -286,22 +285,29 @@ def copy_manufacturer_products(manufacturer):
 
             # Upload Product Meta separately
             if meta:
-                response = d_client.post('/products/{}/meta'.format(new_obj['id']), data=meta)
-                if response.status_code != 201:
-                    raise Exception('[{}]: {}'.format(response.status_code, response.json))
-                print('[destination] Updated Product Meta for {}'.format(new_obj['name']))
+                update_meta('Product', new_obj, meta)
 
             # Update Product Specs and Activate Product
             if product['state'] == 'active' and new_obj['state'] != 'active':
                 response = d_client.patch('/products/{}'
                                           .format(new_obj['id']), data={'specs': specs})
                 if response.status_code != 200:
-                    print(response)
-                    raise Exception('[{}]: {}'.format(response.status_code, response.json))
+                    # Obsolete Specs, fallback to new Specs.
+                    if 'specs' in response.text:
+                        new_specs = []
+                        for spec in new_obj['specs']:
+                            spec.pop('modified')
+                            new_specs.append(spec)
+                            response = d_client.patch('/products/{}'.format(
+                                new_obj['id']), data={'specs': new_specs})
+                            if response.status_code != 200:
+                                raise Exception(
+                                    '[{}]: {}'.format(response.status_code, response.json))
+                    else:
+                        raise Exception('[{}]: {}'.format(response.status_code, response.json))
 
                 response = d_client.put('/products/{}/activate'.format(new_obj['id']))
                 if response.status_code != 204:
-                    print(response)
                     raise Exception('[{}]: {}'.format(response.status_code, response.json))
                 print('[destination] Activated Product: {} ({})'.format(new_obj['name'],
                                                                         new_obj['id']))
@@ -373,13 +379,26 @@ def relate_devices(space):
 
 def restore_names():
     """Restores the original names of the objects."""
-    # TODO: Not so many requests would be nice.
     for obj_type in ('buildings', 'spaces', 'devices', 'products'):
         print('Restoring original names for {}'.format(obj_type.title()))
         for old_id, new_id in ids[obj_type].items():
             response = d_client.get('/{}/{}'.format(obj_type, new_id))
             original_name = response.json['name'].replace(' ({})'.format(old_id.split('-')[0]), '')
             d_client.patch('/{}/{}'.format(obj_type, new_id), data={'name': original_name})
+
+
+def update_meta(obj_type, obj, meta):
+    """Updates Meta of an object."""
+    new_meta = []
+    for meta in meta:
+        # Omit System Meta
+        if '~' not in meta['name']:
+            new_meta.append(meta)
+
+    response = d_client.post('/{}s/{}/meta'.format(obj_type.lower(), obj['id']), data=new_meta)
+    if response.status_code != 201:
+        raise Exception('[{}]: {}'.format(response.status_code, response.json))
+    print('[destination] Updated {} Meta for {}'.format(obj_type, obj['name']))
 
 
 def upsert_object(obj_type, obj, list_url):
