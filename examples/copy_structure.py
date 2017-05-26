@@ -13,14 +13,14 @@ from copy import deepcopy
 from gooee import GooeeClient
 
 # Fields entirely omitted.
-IGNORED_MANUFACTURER_FIELDS = ('devices_total', 'css', 'tags', 'users', 'modified', 'created')
-IGNORED_PRODUCT_FIELDS = ('created', 'modified', 'tags', 'owner', 'manufacturer_name',
+IGNORED_MANUFACTURER_FIELDS = ('devices_total', 'css', 'users', 'modified', 'created')
+IGNORED_PRODUCT_FIELDS = ('created', 'modified', 'owner', 'manufacturer_name',
                           'activated_date')
-IGNORED_CUSTOMER_FIELDS = ('created', 'modified', 'tags')
-IGNORED_BUILDING_FIELDS = ('modified', 'tags', 'users', 'last_activity', 'created')
-IGNORED_SPACE_FIELDS = ('created', 'last_activity', 'modified', 'service_profile', 'tags')
+IGNORED_CUSTOMER_FIELDS = ('created', 'modified')
+IGNORED_BUILDING_FIELDS = ('modified', 'users', 'last_activity', 'created')
+IGNORED_SPACE_FIELDS = ('created', 'last_activity', 'modified', 'service_profile')
 IGNORED_DEVICE_FIELDS = ('created', 'commissioned_date', 'commission_state', 'modified',
-                         'custom_fields', 'service_profile', 'tags')
+                         'custom_fields', 'service_profile')
 
 # Fields omitted during initial creation.
 MANUFACTURER_PKS = ('customers', 'products')
@@ -346,7 +346,7 @@ def relate_spaces(space):
                 'parent_space': ids['spaces'][child_space['parent_space']]
                 if child_space['parent_space'] else None,
             }
-            upsert_object('Child Space', temp_child_space, '/spaces')
+            upsert_object('Child Space with Parent Space', temp_child_space, '/spaces')
 
         # Remove ignored fields
         for key in IGNORED_SPACE_FIELDS:
@@ -376,7 +376,7 @@ def relate_devices(space):
                 if device['parent_device'] else None,
                 'spaces': [ids['spaces'][space_id] for space_id in device['spaces']],
             }
-            upsert_object('Space Device', temp_device, '/devices')
+            upsert_object('Space with Device', temp_device, '/devices')
 
         # Remove ignored fields
         for key in IGNORED_DEVICE_FIELDS:
