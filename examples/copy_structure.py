@@ -29,7 +29,7 @@ CUSTOMER_PKS = ('partner', 'buildings')
 BUILDING_PKS = ('customer', 'spaces')
 SPACE_PKS = ('scenes', 'connected_products', 'building', 'parent_space', 'devices', 'child_spaces')
 DEVICE_PKS = ('building', 'connected_products', 'spaces', 'parent_device', 'child_devices')
-
+USER_PKS = ('partner', 'customer', 'buildings')
 ids = {
     'partners': {},
     'customers': {},
@@ -37,14 +37,17 @@ ids = {
     'buildings': {},
     'spaces': {},
     'devices': {},
+    'users': {},
 }
+
+# TODO: Support pagination on worthy requests so we don't miss anything.
 
 
 def copy_building_devices(building):
     """Copies the Devices of a Building."""
     response = o_client.get('/devices?building={}'.format(building['id']))
     if response.status_code != 200:
-        raise Exception('[{}]: {}'.format(response.status_code, response.json))
+        raise Exception('[{}]: {}'.format(response.status_code, response.text))
     print('[origin] Found {} Devices for Building: {} ({})'
           .format(len(response.json), building['name'], building['id']))
 
@@ -153,6 +156,7 @@ def copy_customer(customer_id):
         ids['customers'][customer['id']] = new_obj['id']
 
     customer['buildings'] = copy_customer_buildings(customer)
+    customer['users'] = copy_users(customer=customer)
 
     return [customer]
 
@@ -216,9 +220,10 @@ def copy_manufacturers(customer_id):
         raise Exception('[origin] Manufacturer not found for Customer {}'.format(customer_name))
 
     # Identify Partners of Device Products
+    # TODO: Omit duplicate Partner likely to show up.
     dresponse = o_client.get('/devices/?building__customer={}&_include=product'.format(customer_id))
     product_ids = set([d['product'] for d in dresponse.json] if dresponse.json else [])
-    dpresponse = o_client.get('/partners')
+    dpresponse = o_client.get('/partners/?customers!={}'.format(customer_id))
     manufacturers += dpresponse.json if dpresponse else []
 
     # Populate Partners
@@ -248,6 +253,7 @@ def copy_manufacturers(customer_id):
 
         # Populate Partner Products
         manufacturer['products'] = copy_manufacturer_products(manufacturer)
+        manufacturer['users'] = copy_users(partner=manufacturer)
         initial_results.append(manufacturer)
 
     # Only fetch the Customer of interest.
@@ -304,27 +310,97 @@ def copy_manufacturer_products(manufacturer):
                 if response.status_code != 200:
                     # Obsolete Specs, fallback to new Specs.
                     if 'specs' in response.text:
-                        new_specs = []
-                        for spec in new_obj['specs']:
-                            spec.pop('modified')
-                            new_specs.append(spec)
-                            response = d_client.patch('/products/{}'.format(
-                                new_obj['id']), data={'specs': new_specs})
-                            if response.status_code != 200:
-                                raise Exception(
-                                    '[{}]: {}'.format(response.status_code, response.json))
+                        reset_specs(new_obj)
                     else:
-                        raise Exception('[{}]: {}'.format(response.status_code, response.json))
+                        raise Exception('[{}]: {}'.format(response.status_code, response.text))
 
                 response = d_client.put('/products/{}/activate'.format(new_obj['id']))
                 if response.status_code != 204:
-                    raise Exception('[{}]: {}'.format(response.status_code, response.json))
+                    # Missing Specs, fallback to new Specs.
+                    if 'All the specs' in response.text:
+                        reset_specs(new_obj)
+                        d_client.put('/products/{}/activate'.format(new_obj['id']))
+                    else:
+                        raise Exception('[{}]: {}'.format(response.status_code, response.text))
                 print('[destination] Activated Product: {} ({})'.format(new_obj['name'],
                                                                         new_obj['id']))
 
         new_products.append(product)
 
     return new_products
+
+
+def reset_specs(new_product):
+    """Reset the Product Specs."""
+    new_specs = []
+    for spec in new_product['specs']:
+        if 'modified' in spec:
+            spec.pop('modified')
+        new_specs.append(spec)
+
+    response = d_client.patch('/products/{}'.format(new_product['id']), data={'specs': new_specs})
+
+    if response.status_code != 200:
+        raise Exception('[{}]: {}'.format(response.status_code, response.text))
+
+
+def copy_users(partner=None, customer=None):
+    """
+    Copies the Users of the Partner or Customer.
+
+    Passwords of the Users need to be reset since we don't know what the passwords are via API.
+    """
+    obj_type = 'Partner User(s)' if partner else 'Customer User(s)'
+    parent_data = partner if partner else customer
+    if partner:
+        response = o_client.get('/users?partner={}'.format(partner['id']))
+    elif customer:
+        response = o_client.get('/users?customer={}'.format(customer['id']))
+
+    if response.status_code != 200:
+        raise Exception('[{}]: {}'.format(response.status_code, response.text))
+    print('[origin] Found {} {} for {}: {} ({})'.format(
+        len(response.json), obj_type, obj_type.split()[0], parent_data['name'], parent_data['id']))
+
+    users = []
+    for user in response.json:
+        if not options['structure_only']:
+            # Remove old UUIDs
+            temp_user = deepcopy(user)
+            for key in USER_PKS:
+                temp_user.pop(key)
+
+            # TODO: Copy the non-default Roles.
+            if temp_user['role'] != 1:
+                temp_user.pop('role')
+
+            # LEGACY?: This isn't a valid account type.
+            if temp_user['account_type'] == 'api':
+                temp_user.pop('account_type')
+
+            # LEGACY?: I've seen Users without invalid e-mails.
+            if '@' not in temp_user['username']:
+                continue
+
+            # TODO: +'s in user names don't work on filters, come up with solution.
+            if '+' in temp_user['username']:
+                continue
+
+            # Apply new UUIDs
+            temp_user['partner'] = ids['partners'][user['partner']] if user['partner'] else None
+            temp_user['customer'] = ids['customers'][user['customer']] if user['customer'] else None
+
+            # Update/Create User and store the UUID
+            new_obj = upsert_object('User', temp_user, '/users')
+            ids['users'][user['id']] = new_obj['id']
+
+            # Activate User
+            response = d_client.post('/users/{}/activate'.format(new_obj['id']))
+            if response.status_code != 200:
+                raise Exception('[{}]: {}'.format(response.status_code, response.text))
+            print('[destination] Activated User: {}'.format(new_obj['username']))
+
+    return users
 
 
 def relate_spaces(space):
@@ -361,7 +437,7 @@ def relate_devices(space):
     """Relates the Devices to their Spaces and Devices."""
     response = o_client.get('/devices?spaces={}'.format(space['id']))
     if response.status_code != 200:
-        raise Exception('[{}]: {}'.format(response.status_code, response.json))
+        raise Exception('[{}]: {}'.format(response.status_code, response.text))
 
     print('[origin] Found {} Devices for Space: {} ({})'
           .format(len(response.json), space['name'], space['id']))
@@ -407,7 +483,7 @@ def update_meta(obj_type, obj, meta):
 
     response = d_client.post('/{}s/{}/meta'.format(obj_type.lower(), obj['id']), data=new_meta)
     if response.status_code != 201:
-        raise Exception('[{}]: {}'.format(response.status_code, response.json))
+        raise Exception('[{}]: {}'.format(response.status_code, response.text))
     print('[destination] Updated {} Meta for {}'.format(obj_type, obj['name']))
 
 
@@ -423,52 +499,66 @@ def get_image_data(data, key):
 
 def upsert_object(obj_type, obj, list_url):
     """Creates or updates the destination object and stores the UUID."""
-    # Determine suitable Name and identifier.
+    # Determine suitable Name and URL.
+    new_name = None
     partial_uuid = obj['id'].split('-')[0]
     if obj_type in ('Manufacturer', 'Customer'):
-        new_name = obj['name']
-        identifier = obj['name']
+        name_key = 'name'
+        response = d_client.get('{}?name={}&_include=id,name'.format(list_url, obj['name']))
+    elif obj_type == 'User':
+        name_key = 'username'
+        response = d_client.get('{}?username={}&_include=id,name'.format(list_url, obj['username']))
     else:
+        name_key = 'name'
         new_name = '{} ({})'.format(obj['name'], partial_uuid)
-        identifier = partial_uuid
-
-    # Locate object
-    response = d_client.get('{}?name__contains={}&_include=id,name'.format(list_url, identifier))
+        response = d_client.get('{}?name__contains={}&_include=id,name'
+                                .format(list_url, partial_uuid))
 
     # Update object
     if len(response.json):
         new_obj = deepcopy(obj)
         new_obj['id'] = response.json[0]['id']
-        new_obj['name'] = response.json[0]['name']
+
+        # Apply custom Name
+        if new_name:
+            new_obj['name'] = new_name
+
         response = d_client.patch(list_url + '/{}'.format(new_obj['id']), data=new_obj)
         if response.status_code != 200:
             raise Exception('[{}] {}: {}'.format(response.status_code, obj_type, response.text))
-        print('[destination] Updated {}: {} ({})'.format(obj_type, obj['name'], obj['id']))
+        print('[destination] Updated {}: {} ({})'.format(obj_type, obj[name_key], obj['id']))
     # Create object
     else:
         new_obj = deepcopy(obj)
-        new_obj['name'] = new_name
+
+        # Apply custom Name
+        if new_name:
+            new_obj['name'] = new_name
+
         response = d_client.post(list_url, data=new_obj)
         if response.status_code != 201:
             raise Exception('[{}] {}: {}'.format(response.status_code, obj_type, response.text))
-        print('[destination] Created {}: {} ({})'.format(obj_type, obj['name'], obj['id']))
+        print('[destination] Created {}: {} ({})'.format(obj_type, obj[name_key], obj['id']))
 
     return response.json
 
 if __name__ == '__main__':
     """Copy Customer API structure to another API instance."""
     parser = ArgumentParser(prog='endpoint_tests')
-    parser.add_argument('-c', '--customer', help='Customer ID to copy data for', required=True)
-    parser.add_argument('-o', '--origin', help='Origin API to copy from (ex: qa1)', required=True)
-    parser.add_argument('-u', '--origin-user', help='Origin API Username', required=True)
-    parser.add_argument('-p', '--origin-pass', help='Origin API Password', required=True)
-    parser.add_argument('-d', '--destination', help='Destination API to copy to (ex: localhost)',
+    parser.add_argument('-c', '--customer', help='Customer ID to copy data for.', required=True)
+    parser.add_argument('-o', '--origin', help='Origin API to copy from (ex: qa1).', required=True)
+    parser.add_argument('-u', '--origin-user', help='Origin API Username.', required=True)
+    parser.add_argument('-p', '--origin-pass', help='Origin API Password.', required=True)
+    parser.add_argument('-d', '--destination', help='Destination API to copy to (ex: localhost).',
                         required=True)
-    parser.add_argument('-U', '--destination-user', help='Destination API Username',
+    parser.add_argument('-U', '--destination-user', help='Destination API Username.',
                         required=True)
-    parser.add_argument('-P', '--destination-pass', help='Destination API Password',
+    parser.add_argument('-P', '--destination-pass', help='Destination API Password.',
                         required=True)
-    parser.add_argument('-s', '--structure-only', help='Display the API structure, don\'t copy',
+    parser.add_argument('-s', '--structure-only', help='Display the API structure, don\'t copy.',
+                        action='store_true')
+    parser.add_argument('-r', '--restore-names', help='Restore original names.  Avoid dupes, only '
+                                                      'use once.',
                         action='store_true')
     (options, args) = parser.parse_known_args()
     options = vars(options)
@@ -486,7 +576,13 @@ if __name__ == '__main__':
     d_client.authenticate(options['destination_user'], options['destination_pass'])
 
     # Initiate copy
-    structure = copy_manufacturers(options['customer'])
-    if options['structure_only']:
-        pprint.pprint(structure)
-    # restore_names()
+    try:
+        structure = copy_manufacturers(options['customer'])
+        if options['structure_only']:
+            pprint.pprint(structure)
+        if not options['structure_only'] and options['restore_names']:
+            restore_names()
+    except Exception as e:
+        print('\a')
+        raise e
+
