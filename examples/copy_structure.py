@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 """
-Copies an API hierarchy for a Customer to the depth of Devices.  Includes Manufacturer/Products.
+Copies an API hierarchy for a Customer to the depth of Devices.
+Includes Manufacturer/Products and Users.
 
 Usage:
     python copy_structure.py -c 095c5c4f-be42-4c5a-98da-20c6e4509799 -o qa1 -u ramon@gooee.com
@@ -41,6 +42,8 @@ ids = {
 }
 
 # TODO: Support pagination on worthy requests so we don't miss anything.
+# TODO: Use an external tool to move the password hashes?
+# TODO: Add support for Rules, Scenes, Schedules, and Connected Products.
 
 
 def copy_building_devices(building):
