@@ -77,7 +77,7 @@ def copy_building_devices(building):
 
             # Upload Device Meta separately
             if meta:
-                update_meta('Device', new_obj, meta)
+                update_meta('Device', new_obj, meta, device)
 
         # Only display the Device without Spaces
         if not device['spaces']:
@@ -117,7 +117,7 @@ def copy_building_spaces(building):
 
             # Upload Space Meta separately
             if meta:
-                update_meta('Space', new_obj, meta)
+                update_meta('Space', new_obj, meta, space)
 
         space['child_spaces'] = relate_spaces(space) if space['child_spaces'] else []
         space['devices'] = relate_devices(space)
@@ -192,7 +192,7 @@ def copy_customer_buildings(customer):
 
             # Upload Building Meta separately
             if meta:
-                update_meta('Building', new_obj, meta)
+                update_meta('Building', new_obj, meta, building)
 
         building['devices'] = copy_building_devices(building)
         building['spaces'] = copy_building_spaces(building)
@@ -303,7 +303,7 @@ def copy_manufacturer_products(manufacturer):
 
             # Upload Product Meta separately
             if meta:
-                update_meta('Product', new_obj, meta)
+                update_meta('Product', new_obj, meta, product)
 
             # Update Product Specs and Activate Product
             if product['state'] == 'active' and new_obj['state'] != 'active':
@@ -475,7 +475,7 @@ def restore_names():
             d_client.patch('/{}/{}'.format(obj_type, new_id), data={'name': original_name})
 
 
-def update_meta(obj_type, obj, meta):
+def update_meta(obj_type, new_obj, meta, old_obj):
     """Updates Meta of an object."""
     new_meta = []
     for meta in meta:
@@ -483,10 +483,15 @@ def update_meta(obj_type, obj, meta):
         if '~' not in meta['name']:
             new_meta.append(meta)
 
-    response = d_client.post('/{}s/{}/meta'.format(obj_type.lower(), obj['id']), data=new_meta)
+    # Stash old IDs in Meta
+    if old_obj['data_service_id']:
+        new_meta.append({'name': 'old_data_service_id', 'value': old_obj['data_service_id']})
+    new_meta.append({'name': 'old_id', 'value': old_obj['id']})
+
+    response = d_client.post('/{}s/{}/meta'.format(obj_type.lower(), new_obj['id']), data=new_meta)
     if response.status_code != 201:
         raise Exception('[{}]: {}'.format(response.status_code, response.text))
-    print('[destination] Updated {} Meta for {}'.format(obj_type, obj['name']))
+    print('[destination] Updated {} Meta for {}'.format(obj_type, new_obj['name']))
 
 
 def get_image_data(data, key):
