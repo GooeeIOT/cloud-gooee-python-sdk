@@ -640,7 +640,7 @@ if __name__ == '__main__':
 
     # Clean Origin/Destination
     for field in ('origin', 'destination'):
-        options[field] = 'http://{}-api.gooee.io'.format(options[field]) \
+        options[field] = 'https://{}-api.gooee.io'.format(options[field]) \
             if options[field] != 'localhost' else 'http://localhost:8000'
     print('Copying Customer from {} to {}'.format(options['origin'], options['destination']))
 
