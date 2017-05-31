@@ -31,6 +31,32 @@ BUILDING_PKS = ('customer', 'spaces')
 SPACE_PKS = ('scenes', 'connected_products', 'building', 'parent_space', 'devices', 'child_spaces')
 DEVICE_PKS = ('building', 'connected_products', 'spaces', 'parent_device', 'child_devices')
 USER_PKS = ('partner', 'customer', 'buildings')
+
+# Roles
+CUSTOMER_ADMIN = {
+    'name': 'Customer Admin',
+    'permission_sets': [
+        'edit_customers',
+        'manage_customer_users',
+        'manage_buildings',
+        'manage_customer_resources',
+        'control_fixtures'
+    ]
+}
+PARTNER_ADMIN = {
+    'name': 'Partner Admin',
+    'permission_sets': [
+        'edit_customers',
+        'manage_customer_users',
+        'manage_buildings',
+        'manage_customer_resources',
+        'control_fixtures',
+        'edit_partners',
+        'manage_partner_users',
+        'manage_customers'
+    ]
+}
+
 ids = {
     'partners': {},
     'customers': {},
@@ -46,16 +72,23 @@ ids = {
 # TODO: Add support for Rules, Scenes, Schedules, and Connected Products.
 
 
-def copy_building_devices(building):
+def copy_building_devices(building, new_partner_id, new_customer_id):
     """Copies the Devices of a Building."""
-    response = o_client.get('/devices?building={}'.format(building['id']))
-    if response.status_code != 200:
-        raise Exception('[{}]: {}'.format(response.status_code, response.text))
+    response_devices = []
+    while True:
+        response = o_client.get('/devices?building={}'.format(building['id']))
+        if response.status_code != 200:
+            raise Exception('[{}]: {}'.format(response.status_code, response.text))
+        response_devices += response.json
+        href = response._next_link
+        if not href:
+            break
+
     print('[origin] Found {} Devices for Building: {} ({})'
-          .format(len(response.json), building['name'], building['id']))
+          .format(len(response_devices), building['name'], building['id']))
 
     devices = []
-    for device in response.json:
+    for device in response_devices:
         # Remove ignored fields
         for key in IGNORED_DEVICE_FIELDS:
             device.pop(key)
@@ -69,6 +102,8 @@ def copy_building_devices(building):
             # Apply new UUIDs
             temp_device['product'] = ids['products'][device['product']]
             temp_device['building'] = ids['buildings'][device['building']]
+            temp_device['customer_scopes'] = [new_customer_id]
+            temp_device['partner_scopes'] = [new_partner_id]
 
             # Update/Create Device and store the UUID
             meta = temp_device.pop('meta', [])
@@ -86,7 +121,7 @@ def copy_building_devices(building):
     return devices
 
 
-def copy_building_spaces(building):
+def copy_building_spaces(building, new_partner_id, new_customer_id):
     """Copies the Spaces of a Building."""
     response = o_client.get('/spaces?building={}'.format(building['id']))
     print('[origin] Found {} Spaces for Building: {} ({})'
@@ -106,6 +141,8 @@ def copy_building_spaces(building):
 
             # Apply new UUIDs
             temp_space['building'] = ids['buildings'][space['building']]
+            temp_space['customer_scopes'] = [new_customer_id]
+            temp_space['partner_scopes'] = [new_partner_id]
 
             # Retain Logo
             temp_space['bg_image'] = get_image_data(space, 'bg_image')
@@ -150,6 +187,7 @@ def copy_customer(customer_id):
 
         # Apply new UUIDs
         temp_customer['partner'] = ids['partners'][customer['partner']]
+        temp_customer['partner_scopes'] = [ids['partners'][customer['partner']]]
 
         # Retain Logo
         temp_customer['logo'] = get_image_data(customer, 'logo')
@@ -158,13 +196,13 @@ def copy_customer(customer_id):
         new_obj = upsert_object('Customer', temp_customer, '/customers')
         ids['customers'][customer['id']] = new_obj['id']
 
-    customer['buildings'] = copy_customer_buildings(customer)
+    customer['buildings'] = copy_customer_buildings(customer, temp_customer['partner'])
     customer['users'] = copy_users(customer=customer)
 
     return [customer]
 
 
-def copy_customer_buildings(customer):
+def copy_customer_buildings(customer, new_partner_id):
     """Copies the Buildings of the Customer."""
     response = o_client.get('/buildings?customer={}'.format(customer['id']))
     print('[origin] Found {} Buildings for Customer: {} ({})'
@@ -183,7 +221,10 @@ def copy_customer_buildings(customer):
                 temp_building.pop(key)
 
             # Apply new UUIDs
-            temp_building['customer'] = ids['customers'][building['customer']]
+            new_customer_id = ids['customers'][building['customer']]
+            temp_building['customer'] = new_customer_id
+            temp_building['customer_scopes'] = [new_customer_id]
+            temp_building['partner_scopes'] = [new_partner_id]
 
             # Update/Create Building and store the UUID
             meta = temp_building.pop('meta', [])
@@ -194,38 +235,38 @@ def copy_customer_buildings(customer):
             if meta:
                 update_meta('Building', new_obj, meta, building)
 
-        building['devices'] = copy_building_devices(building)
-        building['spaces'] = copy_building_spaces(building)
+        building['devices'] = copy_building_devices(building, new_partner_id, new_customer_id)
+        building['spaces'] = copy_building_spaces(building, new_partner_id, new_customer_id)
         new_buildings.append(building)
 
     return new_buildings
 
 
-def copy_manufacturers(customer_id):
+def copy_manufacturers(old_customer_id):
     """
     Copies the Manufacturer of the Customer and related objects down to Device.
 
     A Customer might have a Partner different than the one that owns the Products they use.
     """
     # Identify Customer
-    response = o_client.get('/customers/{}'.format(customer_id))
+    response = o_client.get('/customers/{}'.format(old_customer_id))
     if response.status_code != 200:
         raise Exception('[origin]: Cannot locate Customer')
-    customer_id, customer_name = response.json['id'], response.json['name']
+    old_customer_id, customer_name = response.json['id'], response.json['name']
     print('[origin] Found Customer: {}'.format(customer_name))
 
     # Identify Partner of Customer
     print('[origin] Locating Manufacturer(s) for Customer: {}'.format(customer_name))
-    pcresponse = o_client.get('/partners?customers__id={}'.format(customer_id))
+    pcresponse = o_client.get('/partners?customers__id={}'.format(old_customer_id))
     if len(pcresponse.json) == 1:
         manufacturers = [pcresponse.json[0]]
     else:
         raise Exception('[origin] Manufacturer not found for Customer {}'.format(customer_name))
 
     # Identify Partners of Device Products
-    dresponse = o_client.get('/devices/?building__customer={}&_include=product'.format(customer_id))
+    dresponse = o_client.get('/devices/?building__customer={}&_include=product'.format(old_customer_id))
     product_ids = set([d['product'] for d in dresponse.json] if dresponse.json else [])
-    dpresponse = o_client.get('/partners/?customers!={}'.format(customer_id))
+    dpresponse = o_client.get('/partners/?customers!={}'.format(old_customer_id))
     manufacturers += dpresponse.json if dpresponse else []
 
     # Populate Partners
@@ -233,7 +274,7 @@ def copy_manufacturers(customer_id):
     for manufacturer in manufacturers:
         # Skip Partners that don't match our Products and/or Customer
         if not product_ids.intersection(set(manufacturer['products'])) \
-                and customer_id not in manufacturer['customers']:
+                and old_customer_id not in manufacturer['customers']:
             continue
 
         for key in IGNORED_MANUFACTURER_FIELDS:
@@ -262,7 +303,7 @@ def copy_manufacturers(customer_id):
     secondary_results = []
     for manufacturer in initial_results:
         if pcresponse.json[0]['id'] == manufacturer['id']:
-            manufacturer['customers'] = copy_customer(customer_id)
+            manufacturer['customers'] = copy_customer(old_customer_id)
         secondary_results.append(manufacturer)
 
     return secondary_results
@@ -332,20 +373,6 @@ def copy_manufacturer_products(manufacturer):
     return new_products
 
 
-def reset_specs(new_product):
-    """Reset the Product Specs."""
-    new_specs = []
-    for spec in new_product['specs']:
-        if 'modified' in spec:
-            spec.pop('modified')
-        new_specs.append(spec)
-
-    response = d_client.patch('/products/{}'.format(new_product['id']), data={'specs': new_specs})
-
-    if response.status_code != 200:
-        raise Exception('[{}]: {}'.format(response.status_code, response.text))
-
-
 def copy_users(partner=None, customer=None):
     """
     Copies the Users of the Partner or Customer.
@@ -353,6 +380,7 @@ def copy_users(partner=None, customer=None):
     Passwords of the Users need to be reset since we don't know what the passwords are via API.
     """
     obj_type = 'Partner User(s)' if partner else 'Customer User(s)'
+    role = get_role(PARTNER_ADMIN) if partner else get_role(CUSTOMER_ADMIN)
     parent_data = partner if partner else customer
     if partner:
         response = o_client.get('/users?partner={}'.format(partner['id']))
@@ -372,9 +400,14 @@ def copy_users(partner=None, customer=None):
             for key in USER_PKS:
                 temp_user.pop(key)
 
-            # TODO: Copy the non-default Roles.
-            if temp_user['role'] != 1:
-                temp_user.pop('role')
+            # # TODO: Copy the non-default Roles.
+            # if temp_user['role'] != 1:
+            #     # Remove non-existent Role
+            #     temp_user.pop('role')
+
+            # Assign Customer/Partner Admin Role for missing Roles.
+            temp_user['role'] = role['id']
+            temp_user['account_type'] = 'partner' if partner else 'customer'
 
             # LEGACY?: This isn't a valid account type.
             if temp_user['account_type'] == 'api':
@@ -384,7 +417,7 @@ def copy_users(partner=None, customer=None):
             if '@' not in temp_user['username']:
                 continue
 
-            # TODO: +'s in user names don't work on filters, come up with solution.
+            # TODO: GC-3652 - +'s doesn't work on filters.
             if '+' in temp_user['username']:
                 continue
 
@@ -403,6 +436,51 @@ def copy_users(partner=None, customer=None):
             print('[destination] Activated User: {}'.format(new_obj['username']))
 
     return users
+
+
+def get_image_data(data, key):
+    """Gets the field data for an image."""
+    image_url = data.pop(key)
+    if image_url:
+        image_response = requests.get(image_url, stream=True)
+        return base64.b64encode(image_response.raw.read())
+
+    return ''
+
+
+def get_role(role_data):
+    """Finds or creates the Role using Name and Permission Sets."""
+    # Check for Role using Name
+    response = d_client.get('/roles?name={}'.format(role_data['name']))
+    if len(response.json):
+        return response.json[0]
+
+    # Check for Role using Permission Sets
+    response = d_client.get('/roles')
+    for role in response.json:
+        if set(role['permission_sets']) == set(role_data['permission_sets']):
+            return role
+
+    # Create Role
+    response = d_client.post('/roles', data=role_data)
+    if response.status_code != 201:
+        raise Exception('[{}]: {}'.format(response.status_code, response.text))
+
+    return response.json
+
+
+def reset_specs(new_product):
+    """Reset the Product Specs."""
+    new_specs = []
+    for spec in new_product['specs']:
+        if 'modified' in spec:
+            spec.pop('modified')
+        new_specs.append(spec)
+
+    response = d_client.patch('/products/{}'.format(new_product['id']), data={'specs': new_specs})
+
+    if response.status_code != 200:
+        raise Exception('[{}]: {}'.format(response.status_code, response.text))
 
 
 def relate_spaces(space):
@@ -492,16 +570,6 @@ def update_meta(obj_type, new_obj, meta, old_obj):
     if response.status_code != 201:
         raise Exception('[{}]: {}'.format(response.status_code, response.text))
     print('[destination] Updated {} Meta for {}'.format(obj_type, new_obj['name']))
-
-
-def get_image_data(data, key):
-    """Gets the field data for an image."""
-    image_url = data.pop(key)
-    if image_url:
-        image_response = requests.get(image_url, stream=True)
-        return base64.b64encode(image_response.raw.read())
-
-    return ''
 
 
 def upsert_object(obj_type, obj, list_url):
