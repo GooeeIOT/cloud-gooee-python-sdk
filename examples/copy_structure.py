@@ -67,7 +67,6 @@ ids = {
     'users': {},
 }
 
-# TODO: Support pagination on worthy requests so we don't miss anything.
 # TODO: Use an external tool to move the password hashes?
 # TODO: Add support for Rules, Scenes, Schedules, and Connected Products.
 
@@ -75,8 +74,9 @@ ids = {
 def copy_building_devices(building, new_partner_id, new_customer_id):
     """Copies the Devices of a Building."""
     response_devices = []
+    href = '/devices?building={}'.format(building['id'])
     while True:
-        response = o_client.get('/devices?building={}'.format(building['id']))
+        response = o_client.get(href)
         if response.status_code != 200:
             raise Exception('[{}]: {}'.format(response.status_code, response.text))
         response_devices += response.json
@@ -123,12 +123,22 @@ def copy_building_devices(building, new_partner_id, new_customer_id):
 
 def copy_building_spaces(building, new_partner_id, new_customer_id):
     """Copies the Spaces of a Building."""
-    response = o_client.get('/spaces?building={}'.format(building['id']))
+    response_spaces = []
+    href = '/spaces?building={}'.format(building['id'])
+    while True:
+        response = o_client.get(href)
+        if response.status_code != 200:
+            raise Exception('[{}]: {}'.format(response.status_code, response.text))
+        response_spaces += response.json
+        href = response._next_link
+        if not href:
+            break
+
     print('[origin] Found {} Spaces for Building: {} ({})'
-          .format(len(response.json), building['name'], building['id']))
+          .format(len(response_spaces), building['name'], building['id']))
 
     spaces = []
-    for space in response.json:
+    for space in response_spaces:
         # Remove ignored fields
         for key in IGNORED_SPACE_FIELDS:
             space.pop(key)
@@ -577,12 +587,20 @@ def upsert_object(obj_type, obj, list_url):
     # Determine suitable Name and URL.
     new_name = None
     partial_uuid = obj['id'].split('-')[0]
+    # Identify object by Name
     if obj_type in ('Manufacturer', 'Customer'):
         name_key = 'name'
         response = d_client.get('{}?name={}&_include=id,name'.format(list_url, obj['name']))
+    # Identify User by Username
     elif obj_type == 'User':
         name_key = 'username'
         response = d_client.get('{}?username={}&_include=id,name'.format(list_url, obj['username']))
+    # Identify Product by Manufacturer/SKU
+    elif obj_type == 'Product':
+        name_key = 'name'
+        response = d_client.get('{}?manufacturer={}&sku={}&_include=id,name'
+                                .format(list_url, obj['manufacturer'], obj['sku']))
+    # Identify object by partial UUID
     else:
         name_key = 'name'
         new_name = '{} ({})'.format(obj['name'], partial_uuid)
