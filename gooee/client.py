@@ -67,8 +67,11 @@ class GooeeClient(object):
             'username': username,
             'password': password,
         }
-        token = self.post('/auth/login', data=payload).json['token']
+        response = self.post('/auth/login', data=payload)
+        token = response.json['token']
         self.auth_token = 'JWT {token}'.format(token=token)
+
+        return response
 
     @property
     def default_headers(self):

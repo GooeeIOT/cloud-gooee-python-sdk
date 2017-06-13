@@ -34,7 +34,7 @@ if sys.version_info[:2] < (2, 7):
     requirements.append('simplejson')
 
 setup(
-    name='gooee',
+    name='gooee-sdk',
     version=__version__,
     description='Official Gooee SDK for Python',
     long_description=readme + '\n\n' + history,
