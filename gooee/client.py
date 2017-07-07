@@ -104,7 +104,7 @@ class GooeeClient(object):
 
     @resource
     def delete(self, path, data=None, params=None):
-        return self._request('delete', data=data, params=params)
+        return self._request('delete', path, data=data, params=params)
 
     @resource
     def options(self, path, params=None):
