@@ -68,8 +68,11 @@ class GooeeClient(object):
             'password': password,
         }
         response = self.post('/auth/login', data=payload)
-        token = response.json['token']
-        self.auth_token = 'JWT {token}'.format(token=token)
+
+        # If the status was all good, stash the JWT token.
+        if response.status_code == 200:
+            token = response.json['token']
+            self.auth_token = 'JWT {token}'.format(token=token)
 
         return response
 
