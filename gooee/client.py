@@ -94,8 +94,8 @@ class GooeeClient(object):
         return self._request('get', path, params=params)
 
     @resource
-    def post(self, path, data=None, params=None):
-        return self._request('post', path, data=data, params=params)
+    def post(self, path, headers=None, data=None, params=None):
+        return self._request('post', path, headers=headers, data=data, params=params)
 
     @resource
     def put(self, path, data=None, params=None):
