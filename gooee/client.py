@@ -72,7 +72,7 @@ class GooeeClient(object):
 
             # If the status was all good, stash the JWT token.
             if response.status_code != 200:
-                raise GooeeException('Could not authenticate with the API')
+                raise GooeeException('Could not authenticate with the API username and password')
 
             self.auth_token = 'JWT {token}'.format(token=response.json['token'])
 
@@ -80,9 +80,12 @@ class GooeeClient(object):
         elif api_token:
             response = self.get('/me', headers={'Authorization': api_token})
             if response.status_code != 200:
-                raise GooeeException('Could not authenticate with the API')
+                raise GooeeException('Could not authenticate with the API token')
 
             self.api_token = api_token
+
+        else:
+            raise GooeeException('Insufficient authentication credentials provided')
 
         return response
 
