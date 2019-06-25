@@ -49,8 +49,8 @@ master_doc = 'index'
 
 # General information about the project.
 project = 'Gooee Python SDK'
-copyright = '2017, Dairon Medina C.'
-author = 'Dairon Medina C.'
+copyright = '2019 Gooee LLC'
+author = 'Gooee LLC'
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
@@ -130,7 +130,7 @@ latex_elements = {
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
     (master_doc, 'GooeePythonSDK.tex', 'Gooee Python SDK Documentation',
-     'Dairon Medina C.', 'manual'),
+     'Gooee', 'manual'),
 ]
 
 

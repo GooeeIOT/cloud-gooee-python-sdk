@@ -8,7 +8,7 @@ try:
 except ImportError:
     from distutils.core import setup
 
-__version__ = '0.1.2'
+__version__ = '0.1.3'
 
 if sys.argv[-1] == 'tag':
     os.system("git tag -a %s -m 'version %s'" % (__version__, __version__))
@@ -39,7 +39,7 @@ setup(
     description='Official Gooee SDK for Python',
     long_description=readme + '\n\n' + history,
     author='Gooee LLC',
-    author_email='dairon@gooee.com',
+    author_email='cloud-backend@gooee.com',
     url='https://github.com/GooeeIOT/gooee-python-sdk',
     packages=[
         'gooee',

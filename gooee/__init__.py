@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Copyright 2017 Gooee.com, LLC. All Rights Reserved.
+# Copyright 2019 Gooee.com, LLC. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -16,8 +16,8 @@ from __future__ import unicode_literals
 import logging
 
 __author__ = 'Gooee LLC'
-__email__ = 'dairon@gooee.com'
-__version__ = '0.0.1'
+__email__ = 'cloud-backend@gooee.com'
+__version__ = '0.1.3'
 
 from .client import GooeeClient  # noqa
 
