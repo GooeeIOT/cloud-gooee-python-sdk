@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Copyright 2017 Gooee.com, LLC. All Rights Reserved.
+# Copyright 2019 Gooee.com, LLC. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -20,7 +20,7 @@ from six import string_types
 
 from .compat import json
 from .decorators import resource
-from .exceptions import IllegalHttpMethod
+from .exceptions import IllegalHttpMethod, GooeeException
 from . import __version__
 from .utils import (
     format_path,
@@ -36,6 +36,7 @@ class GooeeClient(object):
     def __init__(self, api_base_url=GOOEE_API_URL):
         self.api_base_url = api_base_url
         self.auth_token = ''
+        self.api_token = ''
 
     def _request(self, method, path, headers=None, data=None, params=None):
         """Request helper."""
@@ -59,20 +60,32 @@ class GooeeClient(object):
 
         return response
 
-    def authenticate(self, username, password):
-        """Authenticate to get the JWT token and stash it for use with future
-        requests.
-        """
-        payload = {
-            'username': username,
-            'password': password,
-        }
-        response = self.post('/auth/login', data=payload)
+    def authenticate(self, username=None, password=None, api_token=None):
+        """Assert and store API authentication credentials for future requests."""
+        # Authenticate with a username and password for a JWT token.
+        if username and password:
+            payload = {
+                'username': username,
+                'password': password,
+            }
+            response = self.post('/auth/login', data=payload)
 
-        # If the status was all good, stash the JWT token.
-        if response.status_code == 200:
-            token = response.json['token']
-            self.auth_token = 'JWT {token}'.format(token=token)
+            # If the status was all good, stash the JWT token.
+            if response.status_code != 200:
+                raise GooeeException('Could not authenticate with the API username and password')
+
+            self.auth_token = 'JWT {token}'.format(token=response.json['token'])
+
+        # Authenticate with an API token.
+        elif api_token:
+            response = self.get('/me', headers={'Authorization': api_token})
+            if response.status_code != 200:
+                raise GooeeException('Could not authenticate with the API token')
+
+            self.api_token = api_token
+
+        else:
+            raise GooeeException('Insufficient authentication credentials provided')
 
         return response
 
@@ -81,7 +94,7 @@ class GooeeClient(object):
         """Default headers to talk to the API with."""
         headers = {
             'Content-Type': 'application/json',
-            'Authorization': self.auth_token,
+            'Authorization': self.api_token or self.auth_token,
             'User-Agent': 'gooee-python-sdk {version} ({system})'.format(
                 version=__version__,
                 system=platform(),
