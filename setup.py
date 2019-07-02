@@ -37,6 +37,7 @@ setup(
     name='gooee-sdk',
     version=__version__,
     description='Official Gooee SDK for Python',
+    long_description_content_type='text/x-rst',
     long_description=readme + '\n\n' + history,
     author='Gooee LLC',
     author_email='cloud-backend@gooee.com',
